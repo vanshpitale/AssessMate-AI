@@ -4,7 +4,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import Dropdown from '../components/Dropdown';
 
 export default function LoginScreen({ nav }) {
-  const [email, setEmail] = useState('teacher@ves.ac.in');
+  const userType = nav.params?.userType || 'teacher';
+  const [email, setEmail] = useState(userType === 'teacher' ? 'teacher@ves.ac.in' : 'student@ves.ac.in');
   const [password, setPassword] = useState('password');
   const [institute, setInstitute] = useState('vesit');
 
@@ -14,13 +15,23 @@ export default function LoginScreen({ nav }) {
     { label: 'IIT Bombay', value: 'iitb' },
   ];
 
+  const handleLogin = () => {
+    if (userType === 'student') {
+      nav.replace('StudentMain', { userType: 'student' });
+    } else {
+      nav.replace('Main', { userType: 'teacher' });
+    }
+  };
+
   return (
     <SafeAreaView style={styles.safe}>
       <ScrollView contentContainerStyle={{ padding: 24 }}>
         <View style={{ alignItems: 'center', marginTop: 40 }}>
           <View style={styles.logoCircle}><Text style={{ color: '#1e3a8a', fontWeight: '700' }}>🎓</Text></View>
           <Text style={styles.title}>AssessMate AI</Text>
-          <Text style={styles.subtitle}>Teacher Portal - Sign in to continue</Text>
+          <Text style={styles.subtitle}>
+            {userType === 'teacher' ? 'Teacher Portal - Sign in to continue' : 'Student Portal - Sign in to continue'}
+          </Text>
         </View>
 
         <View style={{ marginTop: 36 }}>
@@ -32,7 +43,7 @@ export default function LoginScreen({ nav }) {
           <Text style={styles.label}>Password</Text>
           <TextInput style={styles.input} value={password} onChangeText={setPassword} secureTextEntry />
 
-          <TouchableOpacity style={styles.primaryButton} onPress={() => nav.replace('Main')}>
+          <TouchableOpacity style={styles.primaryButton} onPress={handleLogin}>
             <Text style={styles.primaryButtonText}>Log in</Text>
           </TouchableOpacity>
 
