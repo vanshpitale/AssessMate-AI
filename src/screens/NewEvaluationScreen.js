@@ -60,8 +60,7 @@ export default function NewEvaluationScreen({ nav }) {
         <Text style={styles.label}>Upload / Scan Answer Sheets</Text>
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 8, alignItems: 'center' }}>
           <TouchableOpacity style={styles.scanBox} onPress={() => { nav.push('CameraScan'); setTimeout(refreshCapturedImage, 600); }}>
-            <Text style={{ fontWeight: '700' }}>Scan Sheets</Text>
-            <Text style={{ marginTop: 6, color: '#6b7280' }}>Use camera to capture</Text>
+            <Text style={styles.scanText}>Scan Sheets</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.uploadBox}><Text>Upload PDF</Text></TouchableOpacity>
@@ -76,7 +75,7 @@ export default function NewEvaluationScreen({ nav }) {
                 <Text>Remove</Text>
               </TouchableOpacity>
               <View style={{ width: 12 }} />
-              <TouchableOpacity style={styles.primaryButton} onPress={() => {/* would upload or include in evaluation */}}>
+              <TouchableOpacity style={styles.primaryButton} onPress={() => {/* would upload or include in evaluation */ }}>
                 <Text style={{ color: '#fff', fontWeight: '700' }}>Attach</Text>
               </TouchableOpacity>
             </View>
@@ -101,7 +100,7 @@ const styles = StyleSheet.create({
   typeBox: { padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#e6edf2', marginRight: 8, marginTop: 8 },
   typeBoxActive: { borderColor: '#3b82f6', backgroundColor: '#eff6ff' },
   uploadBox: { flex: 1, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#e6edf2', alignItems: 'center', marginRight: 8 },
-  scanBox: { flex: 1, padding: 14, borderRadius: 10, borderWidth: 1, borderColor: '#e6edf2', alignItems: 'center', marginRight: 8, backgroundColor: '#fff' },
+  scanBox: { flex: 1, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: '#e6edf2', alignItems: 'center', marginRight: 8 },
   primaryButton: { backgroundColor: '#3b82f6', padding: 14, borderRadius: 12, alignItems: 'center', marginTop: 24 },
   primaryButtonText: { color: '#fff', fontWeight: '700' },
   secondaryButton: { borderWidth: 1, borderColor: '#e6edf2', padding: 10, borderRadius: 8, alignItems: 'center', backgroundColor: '#fff' }
