@@ -1,7 +1,9 @@
 import React from 'react';
-import { ScrollView, View, Text, StyleSheet } from 'react-native';
+import { ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { getResultById } from '../utils/StudentDataStore';
+import { Colors, Typography, Spacing, Radius, Shadow } from '../theme';
+import BackButton from '../components/ui/BackButton';
 
 export default function StudentResultDetailScreen({ nav }) {
   const resultId = nav.params?.resultId;
@@ -10,6 +12,10 @@ export default function StudentResultDetailScreen({ nav }) {
   if (!result) {
     return (
       <SafeAreaView style={styles.container}>
+        <View style={styles.header}>
+          <BackButton nav={nav} />
+          <View style={{ width: 36 }} />
+        </View>
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>Result not found</Text>
         </View>
@@ -21,9 +27,15 @@ export default function StudentResultDetailScreen({ nav }) {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* ── Header ── */}
+      <View style={styles.header}>
+        <BackButton nav={nav} />
+        <Text style={styles.headerTitle}>Result Detail</Text>
+        <View style={{ width: 36 }} />
+      </View>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Header */}
-        <View style={styles.header}>
+        {/* Content block */}
+        <View style={styles.contentHeader}>
           <Text style={styles.title}>{result.name}</Text>
           <Text style={styles.subject}>{result.subject}</Text>
           <Text style={styles.date}>
@@ -90,7 +102,22 @@ export default function StudentResultDetailScreen({ nav }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f9fafb',
+    backgroundColor: Colors.background,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+  },
+  headerTitle: {
+    fontSize: Typography.md,
+    fontWeight: Typography.bold,
+    color: Colors.textPrimary,
   },
   scrollContent: {
     padding: 20,
@@ -104,7 +131,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#6b7280',
   },
-  header: {
+  contentHeader: {
     marginBottom: 20,
   },
   title: {

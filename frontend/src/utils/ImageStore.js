@@ -4,6 +4,7 @@
 
 let lastImageUri = null;
 let lastPdfUri = null;
+let savedUploadStep = null; // persists wizard step across CameraScan navigation
 
 export function setCapturedImage(uri) {
   lastImageUri = uri;
@@ -28,3 +29,4 @@ export function getCapturedPdf() {
 export function clearCapturedPdf() {
   lastPdfUri = null;
 }
+
