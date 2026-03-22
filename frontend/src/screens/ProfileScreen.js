@@ -9,6 +9,7 @@ import { Colors, Typography, Spacing, Radius, Shadow } from '../theme';
 import Badge from '../components/ui/Badge';
 import PrimaryButton from '../components/ui/PrimaryButton';
 import { getStudentInfo } from '../utils/StudentDataStore';
+import { handleLogout } from '../utils/logoutHandler';
 
 // Animated Toggle Switch
 function ToggleSwitch({ value, onValueChange, color }) {
@@ -56,9 +57,9 @@ export default function ProfileScreen({ nav, userType }) {
   const role  = isStudent ? `${studentInfo.course} · ${studentInfo.semester}` : 'MCA Department · VESIT';
   const email = isStudent ? studentInfo.email : 'anjali.deshpande@ves.ac.in';
 
-  const handleLogout = () => {
+  const onLogoutConfirm = async () => {
     setShowLogoutModal(false);
-    nav.resetTo('RoleSelection');
+    await handleLogout(nav);
   };
 
   return (
@@ -181,7 +182,7 @@ export default function ProfileScreen({ nav, userType }) {
               >
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.modalLogoutBtn} onPress={handleLogout}>
+              <TouchableOpacity style={styles.modalLogoutBtn} onPress={onLogoutConfirm}>
                 <Text style={styles.modalLogoutText}>Log Out</Text>
               </TouchableOpacity>
             </View>

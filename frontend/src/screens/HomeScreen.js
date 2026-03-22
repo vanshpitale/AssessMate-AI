@@ -45,7 +45,7 @@ export default function HomeScreen({ nav }) {
           <Animated.View style={[styles.headerContent, { opacity: headerAnim }]}>
             <View style={styles.headerTop}>
               <View style={styles.greetWrap}>
-                <Text style={styles.greetingSmall}>Good afternoon 👋</Text>
+                <Text style={styles.greetingSmall}>Good Morning 👋</Text>
                 <Text style={styles.greetingName}>Dr. Anjali Deshpande</Text>
                 <Text style={styles.greetingDept}>MCA Department · VESIT</Text>
               </View>
@@ -144,7 +144,7 @@ export default function HomeScreen({ nav }) {
           <View style={styles.aiCard}>
             <View style={styles.aiCardHeader}>
               <Text style={styles.aiIcon}>🤖</Text>
-              <Text style={styles.aiCardTitle}>Gemini AI Recommendations</Text>
+              <Text style={styles.aiCardTitle}>AI Recommendations</Text>
             </View>
             <Text style={styles.aiLine}>• Students are weak in hypothesis testing and data visualization.</Text>
             <Text style={styles.aiLine}>• Consider extra sessions on statistical inference for NMCA11.</Text>

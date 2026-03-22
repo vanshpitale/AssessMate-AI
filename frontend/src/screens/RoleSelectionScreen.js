@@ -45,9 +45,6 @@ export default function RoleSelectionScreen({ nav }) {
           </View>
           <Text style={styles.appName}>AssessMate AI</Text>
           <Text style={styles.tagline}>Smart AI-Powered Evaluation Platform</Text>
-          <View style={styles.taglinePill}>
-            <Text style={styles.taglinePillText}>✦ Powered by Gemini AI</Text>
-          </View>
         </Animated.View>
 
         {/* Role cards */}

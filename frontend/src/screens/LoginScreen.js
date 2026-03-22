@@ -2,9 +2,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity,
-  StyleSheet, Animated, ActivityIndicator, Modal,
+  StyleSheet, Animated, ActivityIndicator, Modal, Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import api from '../config/api';
+import { storeAuthData } from '../utils/asyncStorageHelper';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../theme';
 import InputField from '../components/ui/InputField';
 import PrimaryButton from '../components/ui/PrimaryButton';
@@ -14,8 +16,8 @@ export default function LoginScreen({ nav }) {
   const userType = nav.params?.userType || 'teacher';
   const isTeacher = userType === 'teacher';
 
-  const [email,     setEmail]     = useState(isTeacher ? 'teacher@ves.ac.in' : 'student@ves.ac.in');
-  const [password,  setPassword]  = useState('password');
+  const [email,     setEmail]     = useState(isTeacher ? 'pushkarjaju@ves.ac.in' : 'student@ves.ac.in');
+  const [password,  setPassword]  = useState('Pushkar01');
   const [institute, setInstitute] = useState('vesit');
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState('');
@@ -36,7 +38,7 @@ export default function LoginScreen({ nav }) {
     ]).start();
   }, []);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!email.trim()) {
       setError('Please enter your email address.');
       return;
@@ -47,15 +49,38 @@ export default function LoginScreen({ nav }) {
     }
     setError('');
     setLoading(true);
-    // Simulate auth round-trip
-    setTimeout(() => {
-      setLoading(false);
-      if (userType === 'student') {
+    
+    try {
+      const endpoint = isTeacher ? '/auth/teacher-login' : '/auth/student-login';
+      
+      const response = await api.post(endpoint, {
+        email_or_enrollment: email.trim(),
+        password: password
+      });
+
+      const { token, role } = response.data;
+      
+      // Store token
+      await storeAuthData(token, role);
+
+      // Navigate
+      if (role === 'student') {
         nav.replace('StudentMain', { userType: 'student' });
       } else {
         nav.replace('Main', { userType: 'teacher' });
       }
-    }, 1200);
+    } catch (err) {
+      console.error('Login error:', err);
+      // Determine error message from the backend if available
+      if (err.message === 'Network Error') {
+        setError('Cannot connect to server. Ensure phone & PC are on the same Wi-Fi.');
+      } else {
+        const msg = err.response?.data?.message || 'Network error or invalid credentials.';
+        setError(msg);
+      }
+    } finally {
+      setLoading(false);
+    }
   };
 
   const accentColor = isTeacher ? Colors.primary : Colors.secondary;
@@ -142,13 +167,13 @@ export default function LoginScreen({ nav }) {
             <TouchableOpacity>
               <Text style={[styles.link, { color: accentColor }]}>Forgot password?</Text>
             </TouchableOpacity>
-            <TouchableOpacity>
+            <TouchableOpacity onPress={() => nav.push('Signup', { role: isTeacher ? 'teacher' : 'student' })}>
               <Text style={[styles.link, { color: accentColor }]}>Create account</Text>
             </TouchableOpacity>
           </View>
 
           {/* Back to role selection */}
-          <TouchableOpacity style={styles.backRow} onPress={() => nav.pop()}>
+          <TouchableOpacity style={styles.backRow} onPress={() => nav.replace('RoleSelection')}>
             <Text style={styles.backText}>← Choose a different role</Text>
           </TouchableOpacity>
         </Animated.View>

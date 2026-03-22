@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../../theme';
 
-export default function InputField({
+const InputField = React.forwardRef(({
   label,
   value,
   onChangeText,
@@ -20,7 +20,7 @@ export default function InputField({
   style,
   inputStyle,
   ...rest
-}) {
+}, ref) => {
   const [focused, setFocused] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const borderAnim = useRef(new Animated.Value(0)).current;
@@ -63,6 +63,7 @@ export default function InputField({
       <Animated.View style={containerStyle}>
         {leftIcon && <View style={styles.leftIcon}>{leftIcon}</View>}
         <TextInput
+          ref={ref}
           style={[styles.input, leftIcon && styles.inputWithIcon, inputStyle]}
           value={value}
           onChangeText={onChangeText}
@@ -88,7 +89,9 @@ export default function InputField({
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
     </View>
   );
-}
+});
+
+export default InputField;
 
 const styles = StyleSheet.create({
   wrapper: { marginBottom: Spacing.md },

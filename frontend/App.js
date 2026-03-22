@@ -23,7 +23,9 @@ import StudentSheetsScreen from './src/screens/StudentSheetsScreen';
 // Shared Screens
 import RoleSelectionScreen from './src/screens/RoleSelectionScreen';
 import LoginScreen from './src/screens/LoginScreen';
+import SignupScreen from './src/screens/SignupScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
+import AuthGate from './src/navigation/AuthGate';
 
 import { Colors, Radius, Shadow, Spacing, Typography } from './src/theme';
 
@@ -42,7 +44,7 @@ const STUDENT_TABS = [
 ];
 
 export default function App() {
-  const nav = useSimpleNavigation(['RoleSelection']);
+  const nav = useSimpleNavigation(['AuthGate']);
   const route = nav.current;
   const [userType, setUserType] = useState(nav.params.userType || 'teacher');
   const [mainTab, setMainTab] = useState('Home');
@@ -85,7 +87,7 @@ export default function App() {
     }
   };
 
-  const shouldShowTabs = route !== 'Login' && route !== 'RoleSelection';
+  const shouldShowTabs = route !== 'Login' && route !== 'Signup' && route !== 'RoleSelection' && route !== 'AuthGate';
   const tabs = userType === 'student' ? STUDENT_TABS : TEACHER_TABS;
 
   return (
@@ -95,8 +97,10 @@ export default function App() {
         backgroundColor={Colors.background}
       />
 
+      {route === 'AuthGate'      && <AuthGate nav={navigation} />}
       {route === 'RoleSelection' && <RoleSelectionScreen nav={navigation} />}
       {route === 'Login'         && <LoginScreen nav={navigation} />}
+      {route === 'Signup'        && <SignupScreen nav={navigation} />}
       {route === 'CameraScan'    && <CameraScanScreen nav={navigation} />}
 
       {(route === 'Main' || route === 'StudentMain') && (
