@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   ScrollView, Text, View, TouchableOpacity, Image,
-  StyleSheet, Animated, Alert, Modal,
+  StyleSheet, Animated, Alert, Modal, ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { shareAsync } from 'expo-sharing';
@@ -10,6 +10,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
 import * as DocumentPicker from 'expo-document-picker';
 import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Dropdown from '../components/Dropdown';
 import { getCapturedImage, clearCapturedImage, getCapturedPdf, clearCapturedPdf } from '../utils/ImageStore';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../theme';
@@ -18,9 +19,13 @@ import Badge from '../components/ui/Badge';
 import BackButton from '../components/ui/BackButton';
 import CameraScanScreen from './CameraScanScreen';
 
+import api, { BASE_URL } from '../config/api';
+
 const STEPS = ['Setup', 'Upload', 'Review'];
 
 export default function NewEvaluationScreen({ nav }) {
+  const [evaluationId, setEvaluationId] = useState(null);
+  const [isCreating, setIsCreating] = useState(false);
   const [step, setStep] = useState(0);
   const [showScanner, setShowScanner] = useState(false);
   const [assessmentType, setAssessmentType] = useState('Objective + Descriptive');
@@ -51,17 +56,94 @@ export default function NewEvaluationScreen({ nav }) {
 
   useEffect(() => { refreshCapturedMedia(); }, []);
 
-  function refreshCapturedMedia() {
+  async function refreshCapturedMedia() {
     const img = getCapturedImage();
     const pdf = getCapturedPdf();
     if (img) setCapturedImage(img);
-    if (pdf) setCapturedPdf(pdf);
+    if (pdf && pdf !== capturedPdf) {
+      setCapturedPdf(pdf);
+      await uploadPdfToBackend(pdf, 'scanned_sheet.pdf');
+    } else if (pdf) {
+      setCapturedPdf(pdf);
+    }
   }
 
   const goToStep = (i) => {
     Animated.spring(slideAnim, { toValue: i, useNativeDriver: false, friction: 8 }).start();
     setStep(i);
   };
+
+  const handleCreateEvaluation = async () => {
+    if (evaluationId) {
+      goToStep(1);
+      return;
+    }
+    
+    setIsCreating(true);
+    try {
+      const response = await api.post('/evaluations', {
+        subject: courseOptions.find(c => c.value === course)?.label || course,
+        semester: semesterOptions.find(s => s.value === semester)?.label || semester,
+        examTitle: assessmentOptions.find(a => a.value === assessmentTitle)?.label || assessmentTitle,
+        examType: assessmentType,
+        section: 'A', // default section
+        totalMarks: 100 // default marks
+      });
+      
+      setEvaluationId(response.data.evaluationId);
+      goToStep(1);
+    } catch (error) {
+      Alert.alert('Error', 'Could not create evaluation. Check server connection.');
+      console.error(error);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  async function uploadPdfToBackend(uri, name) {
+    if (!evaluationId) {
+      Alert.alert('Error', 'Evaluation not created yet.');
+      return;
+    }
+    try {
+      const formData = new FormData();
+      formData.append("files", {
+        uri: uri,
+        type: "application/pdf",
+        name: name || 'document.pdf'
+      });
+
+      const authData = await AsyncStorage.getItem('@auth_token');
+      
+      // Use Expo's native FileSystem up-loader to prevent Network request failed due to RAM/fetch limitations
+      const response = await FileSystem.uploadAsync(
+        `${BASE_URL}/evaluations/${evaluationId}/upload`,
+        uri,
+        {
+          fieldName: 'files',
+          httpMethod: 'POST',
+          uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+          mimeType: 'application/pdf',
+          headers: {
+            'Authorization': `Bearer ${authData}`,
+          },
+        }
+      );
+
+      if (response.status !== 200 && response.status !== 201) {
+        throw new Error(response.body || 'Upload failed');
+      }
+      
+      let responseData = response.body;
+      try { responseData = JSON.parse(response.body); } catch(e) {}
+      
+      console.log('Upload success:', responseData);
+      Alert.alert('Success', `Uploaded ${name} successfully!`);
+    } catch (err) {
+      console.error('Upload error:', err.message || err);
+      Alert.alert('Upload Failed', `Could not upload ${name}: ${err.message || err}`);
+    }
+  }
 
   // ── Task 3: PDF Document Picker ──
   async function pickPdfFromDevice() {
@@ -105,6 +187,9 @@ export default function NewEvaluationScreen({ nav }) {
 
       if (validFiles.length > 0) {
         setPickedPdfs(prev => [...prev, ...validFiles]);
+        for (const file of validFiles) {
+          await uploadPdfToBackend(file.uri, file.name);
+        }
       }
     } catch (e) {
       console.error('Document picker error:', e);
@@ -193,7 +278,12 @@ export default function NewEvaluationScreen({ nav }) {
               />
             </View>
 
-            <PrimaryButton title="Next: Upload Sheets →" onPress={() => goToStep(1)} style={{ marginTop: Spacing.xl }} />
+            <PrimaryButton 
+              title={isCreating ? "Creating..." : "Next: Upload Sheets →"} 
+              onPress={handleCreateEvaluation} 
+              disabled={isCreating} 
+              style={{ marginTop: Spacing.xl }} 
+            />
           </View>
         )}
 
@@ -247,9 +337,6 @@ export default function NewEvaluationScreen({ nav }) {
                   >
                     <Text style={styles.removeBtnText}>🗑 Remove</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.attachBtn}>
-                    <Text style={styles.attachBtnText}>✓ Attach</Text>
-                  </TouchableOpacity>
                 </View>
               </View>
             )}
@@ -274,9 +361,6 @@ export default function NewEvaluationScreen({ nav }) {
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.viewPdfBtn} onPress={viewPdf}>
                     <Text style={styles.viewPdfBtnText}>👁 View PDF</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.attachBtn}>
-                    <Text style={styles.attachBtnText}>✓ Attach</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -317,7 +401,7 @@ export default function NewEvaluationScreen({ nav }) {
             <View style={styles.aiReadyBanner}>
               <Text style={styles.aiReadyIcon}>🤖</Text>
               <View style={{ flex: 1 }}>
-                <Text style={styles.aiReadyTitle}>Gemini AI Ready</Text>
+                <Text style={styles.aiReadyTitle}>AI Ready</Text>
                 <Text style={styles.aiReadyDesc}>Your sheets will be processed using Gemini Vision AI for accurate evaluation.</Text>
               </View>
             </View>

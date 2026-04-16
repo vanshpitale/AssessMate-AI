@@ -17,7 +17,7 @@ export default function LoginScreen({ nav }) {
   const isTeacher = userType === 'teacher';
 
   const [email,     setEmail]     = useState(isTeacher ? 'pushkarjaju@ves.ac.in' : 'student@ves.ac.in');
-  const [password,  setPassword]  = useState('Pushkar01');
+  const [password,  setPassword]  = useState(isTeacher ? 'Pushkar01' : 'Student001');
   const [institute, setInstitute] = useState('vesit');
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState('');

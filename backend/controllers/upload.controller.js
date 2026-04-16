@@ -27,8 +27,8 @@ const uploadAnswerSheets = async (req, res) => {
     // Process each uploaded file and create AnswerSheet records
     const sheetPromises = files.map(file => {
       // In a real-world scenario, we'd also upload this to S3/Cloud Storage
-      // Here we just save the local path relative to the backend
-      const fileUrl = `/uploads/${file.filename}`;
+      // Here we store the full URL using host and protocol
+      const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${file.filename}`;
       
       const newSheet = new AnswerSheet({
         evaluationId,

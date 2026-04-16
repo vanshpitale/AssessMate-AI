@@ -237,7 +237,7 @@ export default function SignupScreen({ nav }) {
               label="Full Name"
               value={name}
               onChangeText={(text) => { setName(text); setFieldErrors(e => ({ ...e, name: '' })); }}
-              placeholder="John Doe"
+              placeholder="Rohan Kumar"
               leftIcon={<Text style={styles.inputIcon}>👤</Text>}
               error={fieldErrors.name}
               returnKeyType="next"
