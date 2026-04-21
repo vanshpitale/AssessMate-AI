@@ -11,6 +11,12 @@ const evaluationResultSchema = new mongoose.Schema({
     ref: 'Evaluation',
     required: true
   },
+  overallScore: {
+    type: Number,
+  },
+  overallMax: {
+    type: Number,
+  },
   aiScore: {
     type: Number,
     required: true
@@ -24,6 +30,13 @@ const evaluationResultSchema = new mongoose.Schema({
   feedback: {
     type: String
   },
+  questions: [{
+    id: String,
+    score: Number,
+    max: Number,
+    confidence: Number,
+    feedback: String
+  }],
   status: {
     type: String,
     enum: ['pending', 'verified'],

@@ -366,7 +366,7 @@ export default function NewEvaluationScreen({ nav }) {
               </View>
             )}
 
-            <SectionTitle icon="🔑" title="Answer Key / Rubric" subtitle="Optional – attach if available" style={{ marginTop: Spacing.md }} />
+            <SectionTitle icon="🔑" title="Answer Key / Rubric"  style={{ marginTop: Spacing.md }} />
             <TouchableOpacity style={styles.attachKeyBtn}>
               <Text style={styles.attachKeyText}>＋ Attach Answer Key or Rubric</Text>
             </TouchableOpacity>
