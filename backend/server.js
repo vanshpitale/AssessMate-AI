@@ -29,8 +29,8 @@ app.use('/api/evaluations', evaluationRoutes);
 app.use('/api/evaluations', uploadRoutes); // Reusing evaluations prefix for /:evaluationId/upload
 app.use('/api', reportRoutes); // /teacher/dashboard and /student/reports
 
-const PORT = process.env.PORT || 5000;
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/assessmate';
+const PORT = process.env.PORT;
+const MONGO_URI = process.env.MONGO_URI;
 
 mongoose
   .connect(MONGO_URI)

@@ -3,11 +3,10 @@ const bcrypt = require('bcrypt');
 const Teacher = require('../models/Teacher');
 const Student = require('../models/Student');
 
-// Helper to generate JWT
 const generateToken = (userId, role, name) => {
   return jwt.sign(
     { userId, role, name },
-    process.env.JWT_SECRET || 'fallback_secret',
+    process.env.JWT_SECRET,
     { expiresIn: '24h' }
   );
 };

@@ -6,8 +6,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // on your local Wi-Fi network. 
 // Run `ipconfig` (Windows) or `ifconfig` (Mac) to find it.
 
-// We detected 10.71.127.222 as your active Wi-Fi IPv4 address.
-export const BASE_URL = 'http://192.168.29.222:5000/api';
+// We fetch the BASE_URL from the .env file using Expo's environment variables
+export const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.29.222:5000/api';
 
 const api = axios.create({
   baseURL: BASE_URL,

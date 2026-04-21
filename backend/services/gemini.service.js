@@ -2,7 +2,7 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const fs = require('fs');
 const path = require('path');
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'AIzaSyBmahVEdnNuzzkPf_WKd4-oseWKo0LooOs');
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // Helper to convert local file to inline data
 const fileToGenerativePart = (filePath, mimeType) => {

@@ -3,7 +3,9 @@ const AnswerSheet = require('../models/AnswerSheet');
 const EvaluationResult = require('../models/EvaluationResult');
 const aiJobService = require('../services/aiJob.service');
 const { evaluateWithGemini, fileToGenerativePart, getMimeType } = require('../services/gemini.service');
+const { convertPdfToImages, imageToBase64, cleanupTempImages } = require('../utils/pdfToImage');
 const path = require('path');
+const fs = require('fs');
 
 // @route   POST /api/evaluations
 // @desc    Create a new evaluation (Teacher only)
@@ -164,9 +166,11 @@ const getEvaluationStatus = async (req, res) => {
 };
 
 // @route   POST /api/evaluations/:id/run-gemini
-// @desc    Trigger Gemini multimodal AI processing directly
+// @desc    Trigger Gemini multimodal AI processing directly (supports PDF + images)
 // @access  Private (Teacher)
 const runGeminiEvaluation = async (req, res) => {
+  let tempImagePaths = []; // track temp files for cleanup
+
   try {
     const { id } = req.params;
     const { questions } = req.body;
@@ -188,62 +192,92 @@ const runGeminiEvaluation = async (req, res) => {
       return res.status(400).json({ message: 'No answer sheets found for this evaluation.' });
     }
 
-    // Process the first sheet for demonstration
-    // Note: In a full implementation, you'd loop through all sheets or use a background queue
+    // Process the first sheet
+    // (For multiple sheets, wrap in a loop / background queue)
     const sheet = sheets[0];
-    
-    // 3. Fetch uploaded file (extract filename from fileUrl)
+
+    // 3. Resolve absolute file path from stored fileUrl
     let filePathStr = sheet.fileUrl;
     if (filePathStr.startsWith('http')) {
-       const parts = filePathStr.split('/uploads/');
-       if (parts.length > 1) {
-         filePathStr = parts[1];
-       }
+      const parts = filePathStr.split('/uploads/');
+      if (parts.length > 1) filePathStr = parts[1];
     } else if (filePathStr.startsWith('/uploads/')) {
-       filePathStr = filePathStr.replace('/uploads/', '');
+      filePathStr = filePathStr.replace('/uploads/', '');
     }
-    
+
     const absoluteFilePath = path.join(__dirname, '..', 'uploads', filePathStr);
-    
-    try {
-      // 4. Convert files to imageParts
-      const mimeType = getMimeType(absoluteFilePath);
-      if (mimeType === 'application/pdf') {
-         return res.status(400).json({ message: 'PDFs must be converted to images first. Please provide PNG or JPG files.' });
-      }
-      
-      const imageParts = [fileToGenerativePart(absoluteFilePath, mimeType)];
 
-      // 5. Call evaluateWithGemini()
-      const resultObj = await evaluateWithGemini({ imageParts, questions });
-
-      // 6. Store result in DB
-      const evalResult = new EvaluationResult({
-        sheetId: sheet._id,
-        evaluationId: evaluation._id,
-        overallScore: resultObj.overallScore,
-        overallMax: resultObj.overallMax,
-        confidence: resultObj.confidence,
-        aiScore: resultObj.overallScore, // For backward compatibility
-        questions: resultObj.questions,
-        status: 'pending'
-      });
-      await evalResult.save();
-
-      // 7. Return expected format
-      return res.status(200).json({
-        status: 'completed',
-        evaluationId: evaluation._id,
-        result: resultObj
-      });
-    } catch (fsError) {
-       console.error("File processing error:", fsError);
-       return res.status(500).json({ message: 'Error accessing file or Gemini API: ' + fsError.message });
+    if (!fs.existsSync(absoluteFilePath)) {
+      return res.status(404).json({ message: `Uploaded file not found: ${filePathStr}` });
     }
+
+    // 4. Detect file type and build imageParts for Gemini
+    let imageParts = [];
+    const ext = path.extname(absoluteFilePath).toLowerCase();
+    const tempDir = path.join(__dirname, '..', 'temp_images');
+
+    if (ext === '.pdf') {
+      // ── PDF PATH ─────────────────────────────────────────────
+      console.log(`[Gemini] PDF detected. Converting to images…`);
+      tempImagePaths = await convertPdfToImages(absoluteFilePath, tempDir);
+
+      if (tempImagePaths.length === 0) {
+        return res.status(500).json({ message: 'PDF conversion produced no images.' });
+      }
+
+      // Build Gemini inline data parts — one per page, in order
+      imageParts = tempImagePaths.map((imgPath) => ({
+        inlineData: {
+          data: imageToBase64(imgPath),
+          mimeType: 'image/png',
+        },
+      }));
+
+      console.log(`[Gemini] Sending ${imageParts.length} page(s) to Gemini…`);
+    } else {
+      // ── IMAGE PATH (PNG / JPG / WEBP etc.) ───────────────────
+      const mimeType = getMimeType(absoluteFilePath);
+      imageParts = [fileToGenerativePart(absoluteFilePath, mimeType)];
+      console.log(`[Gemini] Image detected (${mimeType}). Sending to Gemini…`);
+    }
+
+    // 5. Call Gemini
+    const resultObj = await evaluateWithGemini({ imageParts, questions });
+
+    // 6. Store result in DB
+    const evalResult = new EvaluationResult({
+      sheetId: sheet._id,
+      evaluationId: evaluation._id,
+      overallScore: resultObj.overallScore,
+      overallMax: resultObj.overallMax,
+      confidence: resultObj.confidence,
+      aiScore: resultObj.overallScore,
+      questions: resultObj.questions,
+      status: 'pending',
+    });
+    await evalResult.save();
+
+    // 7. Cleanup temp images (PDF path only)
+    if (tempImagePaths.length > 0) {
+      cleanupTempImages(tempImagePaths);
+    }
+
+    // 8. Respond
+    return res.status(200).json({
+      status: 'completed',
+      evaluationId: evaluation._id,
+      result: resultObj,
+    });
 
   } catch (error) {
-    console.error('Error running Gemini evaluation:', error);
-    res.status(500).json({ message: 'Server error processing Gemini evaluation.' });
+    console.error('[Gemini] Error running Gemini evaluation:', error);
+
+    // Best-effort cleanup on error
+    if (tempImagePaths.length > 0) {
+      cleanupTempImages(tempImagePaths);
+    }
+
+    res.status(500).json({ message: 'Server error processing Gemini evaluation: ' + error.message });
   }
 };
 
