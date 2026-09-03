@@ -7,7 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Run `ipconfig` (Windows) or `ifconfig` (Mac) to find it.
 
 // We fetch the BASE_URL from the .env file using Expo's environment variables
-export const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.29.222:5000/api';
+export const BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://10.14.200.222:5000/api';
 
 const api = axios.create({
   baseURL: BASE_URL,

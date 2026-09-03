@@ -1,32 +1,80 @@
-// src/screens/StudentHomeScreen.js – Design system upgrade
-import React, { useState } from 'react';
+// src/screens/StudentHomeScreen.js – Dynamic Student Dashboard
+import React, { useState, useEffect } from 'react';
 import {
-  ScrollView, View, Text, TouchableOpacity, StyleSheet, RefreshControl,
+  ScrollView, View, Text, TouchableOpacity, StyleSheet, RefreshControl, ActivityIndicator
 } from 'react-native';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../theme';
-import { getStudentInfo, getStudentStats } from '../utils/StudentDataStore';
 import Badge from '../components/ui/Badge';
 import ProgressIndicator from '../components/ui/ProgressIndicator';
 import SectionHeader from '../components/ui/SectionHeader';
+import api from '../config/api';
 
 export default function StudentHomeScreen({ nav }) {
-  const student = getStudentInfo();
-  const stats = getStudentStats();
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState(null);
+  const [reports, setReports] = useState([]);
 
-  const initials = student.name.split(' ').map(n => n[0]).join('').slice(0, 2);
-  const avgPct = stats.averageScore;
+  useEffect(() => {
+    fetchStudentData();
+  }, []);
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1200);
+  const fetchStudentData = async () => {
+    try {
+      const [meRes, reportsRes] = await Promise.all([
+        api.get('/auth/me'),
+        api.get('/student/reports')
+      ]);
+      setProfile(meRes.data);
+      setReports(reportsRes.data.reports || []);
+    } catch (err) {
+      console.error('Error fetching student data:', err);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchStudentData();
+    setRefreshing(false);
+  };
+
+  if (loading && !refreshing) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.secondary} />
+        <Text style={styles.loadingText}>Loading dashboard...</Text>
+      </View>
+    );
+  }
+
+  const displayName = profile?.name || 'Student';
+  const displaySub = `Sec ${profile?.section || 'A'} · ${profile?.institute?.toUpperCase() || 'Institution'}`;
+  const initials = displayName.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
+
+  let averageScore = 0;
+  if (reports.length > 0) {
+    const sum = reports.reduce((acc, r) => acc + (r.obtainedMarks || 0), 0);
+    const max = reports.reduce((acc, r) => acc + (r.totalMarks || 100), 0);
+    averageScore = max > 0 ? Math.round((sum / max) * 100) : 0;
+  }
+
+  const recentResults = [...reports]
+    .sort((a, b) => new Date(b.date) - new Date(a.date))
+    .slice(0, 3);
 
   return (
     <View style={styles.safe}>
       <ScrollView
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.secondary} />}
+        refreshControl={
+          <RefreshControl 
+            refreshing={refreshing} 
+            onRefresh={onRefresh} 
+            tintColor={Colors.secondary} 
+          />
+        }
       >
         {/* ── Hero Header ── */}
         <View style={styles.hero}>
@@ -36,12 +84,12 @@ export default function StudentHomeScreen({ nav }) {
             <View style={styles.heroTop}>
               <View style={styles.greetWrap}>
                 <Text style={styles.greetSmall}>Welcome back 👋</Text>
-                <Text style={styles.greetName}>{student.name}</Text>
-                <Text style={styles.greetSub}>{student.course} · {student.semester}</Text>
+                <Text style={styles.greetName}>{displayName}</Text>
+                <Text style={styles.greetSub}>{displaySub}</Text>
               </View>
-              <View style={styles.avatarCircle}>
+              <TouchableOpacity style={styles.avatarCircle} onPress={() => nav.push('Profile')}>
                 <Text style={styles.avatarText}>{initials}</Text>
-              </View>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -49,30 +97,30 @@ export default function StudentHomeScreen({ nav }) {
         <View style={styles.body}>
           {/* ── Stats strip ── */}
           <View style={styles.statsRow}>
-            <StatBox icon="📝" label="Total Tests" value={String(stats.totalEvaluations)} accent={Colors.secondary} />
-            <StatBox icon="⭐" label="Avg Score"   value={`${avgPct}%`}                  accent={Colors.primary} />
-            <StatBox icon="📅" label="Semester"    value={student.semester?.split(' ').pop() || 'II'}  accent={Colors.success} />
+            <StatBox icon="📝" label="Total Tests" value={String(reports.length)} accent={Colors.secondary} />
+            <StatBox icon="⭐" label="Avg Score"   value={`${averageScore}%`}                  accent={Colors.primary} />
+            <StatBox icon="🎓" label="Section"    value={profile?.section || 'A'}  accent={Colors.success} />
           </View>
 
           {/* ── Performance bar ── */}
           <View style={styles.perfCard}>
             <View style={styles.perfRow}>
               <Text style={styles.perfTitle}>Your Performance</Text>
-              <Badge label={avgPct >= 70 ? 'Good' : avgPct >= 50 ? 'Average' : 'Needs Work'} variant={avgPct >= 70 ? 'success' : avgPct >= 50 ? 'warning' : 'danger'} />
+              <Badge label={averageScore >= 70 ? 'Good' : averageScore >= 50 ? 'Average' : 'Needs Work'} variant={averageScore >= 70 ? 'success' : averageScore >= 50 ? 'warning' : 'danger'} />
             </View>
-            <ProgressIndicator value={avgPct} label="Overall Average" style={{ marginTop: Spacing.md }} />
+            <ProgressIndicator value={averageScore} label="Overall Average" style={{ marginTop: Spacing.md }} />
           </View>
 
           {/* ── Recent Results ── */}
           <SectionHeader title="Recent Results" action="See all →" onAction={() => nav.switchTab('Results')} style={{ marginTop: Spacing.md }} />
-          {stats.recentResults.length === 0 ? (
+          {recentResults.length === 0 ? (
             <View style={styles.emptyCard}>
               <Text style={styles.emptyIcon}>📊</Text>
               <Text style={styles.emptyTitle}>No results yet</Text>
-              <Text style={styles.emptyDesc}>Your graded evaluations will appear here.</Text>
+              <Text style={styles.emptyDesc}>Your graded evaluation results will appear here.</Text>
             </View>
           ) : (
-            stats.recentResults.map(result => {
+            recentResults.map(result => {
               const pct = Math.round((result.obtainedMarks / result.totalMarks) * 100);
               return (
                 <TouchableOpacity
@@ -128,6 +176,9 @@ function StatBox({ icon, label, value, accent }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
+
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
+  loadingText: { marginTop: Spacing.md, fontSize: Typography.sm, color: Colors.textSecondary, fontWeight: Typography.medium },
 
   hero: { backgroundColor: Colors.secondary, overflow: 'hidden', paddingBottom: Spacing.xl + Spacing.md },
   heroBg1: { position: 'absolute', top: -40, right: -40, width: 180, height: 180, borderRadius: 90, backgroundColor: 'rgba(255,255,255,0.08)' },

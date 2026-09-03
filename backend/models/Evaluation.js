@@ -1,4 +1,4 @@
-const mongoose = require('mongoose');
+ const mongoose = require('mongoose');
 
 const evaluationSchema = new mongoose.Schema({
   teacherId: {
@@ -30,9 +30,15 @@ const evaluationSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
+  questions: [{
+    id: { type: String, required: true },
+    questionText: { type: String },
+    modelAnswer: { type: String, required: true },
+    max: { type: Number, required: true }
+  }],
   status: {
     type: String,
-    enum: ['created', 'uploading', 'processing', 'completed'],
+    enum: ['created', 'uploading', 'processing', 'completed', 'failed'],
     default: 'created'
   }
 }, { timestamps: true });

@@ -1,24 +1,69 @@
-import React from 'react';
-import { ScrollView, View, Text, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+// src/screens/StudentSheetsScreen.js – Dynamic Student Sheets Screen
+import React, { useState, useEffect } from 'react';
+import { ScrollView, View, Text, TouchableOpacity, StyleSheet, Alert, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getStudentResults } from '../utils/StudentDataStore';
+import api from '../config/api';
 
 export default function StudentSheetsScreen({ nav }) {
-  const results = getStudentResults();
+  const [loading, setLoading] = useState(true);
+  const [sheets, setSheets] = useState([]);
 
-  const handleViewPDF = (sheetName) => {
-    // Placeholder for PDF viewer - will need backend integration
-    Alert.alert('View Sheet', `PDF viewer for "${sheetName}" will be implemented with backend integration.`);
+  useEffect(() => {
+    fetchSheets();
+  }, []);
+
+  const fetchSheets = async () => {
+    try {
+      setLoading(true);
+      const res = await api.get('/student/reports');
+      setSheets(res.data.reports || []);
+    } catch (err) {
+      console.error('Error fetching student sheets:', err);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const handleViewPDF = (sheet) => {
+    if (!sheet.fileUrl) {
+      Alert.alert('Unavailable', 'No PDF file path is available for this sheet.');
+      return;
+    }
+    Alert.alert('View Sheet', `Answer sheet file path on server:\n\n${sheet.fileUrl}`);
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#3b82f6" />
+        <Text style={styles.loadingText}>Loading your sheets...</Text>
+      </View>
+    );
+  }
+
+  if (sheets.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyIcon}>📄</Text>
+          <Text style={styles.emptyTitle}>No answer sheets submitted</Text>
+          <Text style={styles.emptyDesc}>Your submitted answer sheets will appear here once uploaded by your teacher.</Text>
+          <TouchableOpacity style={styles.refreshBtn} onPress={fetchSheets}>
+            <Text style={styles.refreshBtnText}>Tap to Refresh</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>My Answer Sheets</Text>
         <Text style={styles.subtitle}>View all your submitted answer sheets</Text>
 
         <View style={styles.sheetsList}>
-          {results.map((sheet) => (
+          {sheets.map((sheet) => (
             <View key={sheet.id} style={styles.sheetCard}>
               <View style={styles.sheetInfo}>
                 <Text style={styles.sheetName}>{sheet.name}</Text>
@@ -31,20 +76,15 @@ export default function StudentSheetsScreen({ nav }) {
                   })}
                 </Text>
                 <View style={styles.statusContainer}>
-                  {sheet.status === 'graded' ? (
-                    <View style={styles.gradedBadge}>
-                      <Text style={styles.gradedBadgeText}>✓ Graded</Text>
-                    </View>
-                  ) : (
-                    <View style={styles.pendingBadge}>
-                      <Text style={styles.pendingBadgeText}>⏳ Pending</Text>
-                    </View>
-                  )}
+                  <View style={styles.gradedBadge}>
+                    <Text style={styles.gradedBadgeText}>✓ Graded</Text>
+                  </View>
                 </View>
               </View>
               <TouchableOpacity
                 style={styles.viewButton}
-                onPress={() => handleViewPDF(sheet.name)}
+                onPress={() => handleViewPDF(sheet)}
+                activeOpacity={0.8}
               >
                 <Text style={styles.viewButtonText}>View PDF</Text>
               </TouchableOpacity>
@@ -61,6 +101,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f9fafb',
   },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f9fafb' },
+  loadingText: { marginTop: 12, fontSize: 14, color: '#6b7280', fontWeight: '500' },
+  
+  // Empty state
+  emptyContainer: { flex: 1, padding: 40, alignItems: 'center', justifyContent: 'center', marginTop: 80 },
+  emptyIcon: { fontSize: 48, marginBottom: 16 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#111827', marginBottom: 8 },
+  emptyDesc: { fontSize: 14, color: '#6b7280', textAlign: 'center', lineHeight: 20, marginBottom: 24 },
+  refreshBtn: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, backgroundColor: '#3b82f6' },
+  refreshBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+
   scrollContent: {
     padding: 20,
   },
@@ -115,17 +166,6 @@ const styles = StyleSheet.create({
   },
   gradedBadgeText: {
     color: '#065f46',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  pendingBadge: {
-    backgroundColor: '#fef3c7',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  pendingBadgeText: {
-    color: '#92400e',
     fontSize: 12,
     fontWeight: '600',
   },

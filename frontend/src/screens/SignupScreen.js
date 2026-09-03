@@ -208,12 +208,14 @@ export default function SignupScreen({ nav }) {
               <TouchableOpacity 
                 style={[styles.roleButton, role === 'teacher' && styles.roleButtonActiveTeacher]} 
                 onPress={() => handleRoleChange('teacher')}
+                activeOpacity={0.8}
               >
                 <Text style={[styles.roleButtonText, role === 'teacher' && styles.roleButtonTextActive]}>Teacher</Text>
               </TouchableOpacity>
               <TouchableOpacity 
                 style={[styles.roleButton, role === 'student' && styles.roleButtonActiveStudent]} 
                 onPress={() => handleRoleChange('student')}
+                activeOpacity={0.8}
               >
                 <Text style={[styles.roleButtonText, role === 'student' && styles.roleButtonTextActive]}>Student</Text>
               </TouchableOpacity>
@@ -353,7 +355,7 @@ export default function SignupScreen({ nav }) {
               variant={role === 'teacher' ? 'primary' : 'secondary'}
             />
 
-            <TouchableOpacity style={styles.backRow} onPress={() => nav.pop()}>
+            <TouchableOpacity style={styles.backRow} onPress={() => nav.pop()} activeOpacity={0.8}>
               <Text style={styles.backText}>Already have an account? Sign In</Text>
             </TouchableOpacity>
           </Animated.View>

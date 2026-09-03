@@ -1,13 +1,40 @@
-import React from 'react';
-import { ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+// src/screens/StudentResultDetailScreen.js – Dynamic Student Result Detail
+import React, { useState, useEffect } from 'react';
+import { ScrollView, View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getResultById } from '../utils/StudentDataStore';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../theme';
 import BackButton from '../components/ui/BackButton';
+import api from '../config/api';
 
 export default function StudentResultDetailScreen({ nav }) {
   const resultId = nav.params?.resultId;
-  const result = getResultById(resultId);
+  const [loading, setLoading] = useState(true);
+  const [result, setResult] = useState(null);
+
+  useEffect(() => {
+    fetchResultDetail();
+  }, [resultId]);
+
+  const fetchResultDetail = async () => {
+    try {
+      setLoading(true);
+      const res = await api.get(`/student/reports/${resultId}`);
+      setResult(res.data);
+    } catch (err) {
+      console.error('Error fetching result detail:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#3b82f6" />
+        <Text style={styles.loadingText}>Loading result details...</Text>
+      </View>
+    );
+  }
 
   if (!result) {
     return (
@@ -17,13 +44,18 @@ export default function StudentResultDetailScreen({ nav }) {
           <View style={{ width: 36 }} />
         </View>
         <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>Result not found</Text>
+          <Text style={styles.errorText}>Result not found or unauthorized.</Text>
         </View>
       </SafeAreaView>
     );
   }
 
-  const percentage = Math.round((result.obtainedMarks / result.totalMarks) * 100);
+  const obtainedMarks = result.finalScore !== undefined ? result.finalScore : result.aiScore;
+  const totalMarks = result.overallMax || 100;
+  const percentage = totalMarks > 0 ? Math.round((obtainedMarks / totalMarks) * 100) : 0;
+
+  const examTitle = result.evaluationId?.examTitle || 'Evaluation Result';
+  const subject = result.evaluationId?.subject || 'Subject Details';
 
   return (
     <SafeAreaView style={styles.container}>
@@ -33,13 +65,13 @@ export default function StudentResultDetailScreen({ nav }) {
         <Text style={styles.headerTitle}>Result Detail</Text>
         <View style={{ width: 36 }} />
       </View>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Content block */}
         <View style={styles.contentHeader}>
-          <Text style={styles.title}>{result.name}</Text>
-          <Text style={styles.subject}>{result.subject}</Text>
+          <Text style={styles.title}>{examTitle}</Text>
+          <Text style={styles.subject}>{subject}</Text>
           <Text style={styles.date}>
-            {new Date(result.date).toLocaleDateString('en-US', {
+            Graded on: {new Date(result.createdAt).toLocaleDateString('en-US', {
               month: 'long',
               day: 'numeric',
               year: 'numeric',
@@ -52,7 +84,7 @@ export default function StudentResultDetailScreen({ nav }) {
           <View style={styles.scoreHeader}>
             <Text style={styles.scoreLabel}>Your Score</Text>
             <Text style={styles.scoreValue}>
-              {result.obtainedMarks}/{result.totalMarks}
+              {obtainedMarks}/{totalMarks}
             </Text>
           </View>
           <View style={styles.progressBarContainer}>
@@ -75,23 +107,28 @@ export default function StudentResultDetailScreen({ nav }) {
         {result.questions && result.questions.length > 0 && (
           <View style={styles.questionsSection}>
             <Text style={styles.sectionTitle}>Question-wise Analysis</Text>
-            {result.questions.map((question, index) => (
-              <View key={question.id} style={styles.questionCard}>
-                <View style={styles.questionHeader}>
-                  <Text style={styles.questionNumber}>Q{index + 1}</Text>
-                  <Text style={styles.questionScore}>
-                    {question.obtainedMarks}/{question.maxMarks}
-                  </Text>
-                </View>
-                <Text style={styles.questionText}>{question.question}</Text>
-                {question.feedback && (
-                  <View style={styles.questionFeedback}>
-                    <Text style={styles.feedbackLabel}>Feedback: </Text>
-                    <Text style={styles.questionFeedbackText}>{question.feedback}</Text>
+            {result.questions.map((question, index) => {
+              const matchedQ = result.evaluationId?.questions?.find(eq => eq.id === question.id);
+              return (
+                <View key={question.id || index} style={styles.questionCard}>
+                  <View style={styles.questionHeader}>
+                    <Text style={styles.questionNumber}>Q{question.id}</Text>
+                    <Text style={styles.questionScore}>
+                      {question.score}/{question.max}
+                    </Text>
                   </View>
-                )}
-              </View>
-            ))}
+                  <Text style={styles.questionText}>
+                    {matchedQ?.questionText || `Question reference: ${question.id}`}
+                  </Text>
+                  {question.feedback && (
+                    <View style={styles.questionFeedback}>
+                      <Text style={styles.feedbackLabel}>Feedback: </Text>
+                      <Text style={styles.questionFeedbackText}>{question.feedback}</Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
           </View>
         )}
       </ScrollView>
@@ -104,6 +141,8 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: Colors.background,
   },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
+  loadingText: { marginTop: 12, fontSize: 14, color: Colors.textSecondary, fontWeight: '500' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

@@ -1,30 +1,81 @@
-// src/screens/HomeScreen.js – Production Dashboard upgrade
+// src/screens/HomeScreen.js – Dynamic Teacher Dashboard
 import React, { useRef, useEffect, useState } from 'react';
 import {
   ScrollView, View, Text, TouchableOpacity,
-  StyleSheet, Animated, RefreshControl,
+  StyleSheet, Animated, RefreshControl, ActivityIndicator
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../theme';
 import StatCard from '../components/ui/StatCard';
 import SectionHeader from '../components/ui/SectionHeader';
 import ProgressIndicator from '../components/ui/ProgressIndicator';
 import Badge from '../components/ui/Badge';
+import api from '../config/api';
 
 export default function HomeScreen({ nav }) {
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState(null);
+  const [stats, setStats] = useState({
+    totalEvaluations: 0,
+    pendingEvaluations: 0,
+    completedEvaluations: 0,
+    averageScore: '0%',
+    totalStudents: 0,
+  });
+  const [evaluations, setEvaluations] = useState([]);
+
   const headerAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.timing(headerAnim, {
       toValue: 1, duration: 600, useNativeDriver: true,
     }).start();
+    fetchData();
   }, []);
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1500);
+  const fetchData = async () => {
+    try {
+      const [meRes, statsRes, evRes] = await Promise.all([
+        api.get('/auth/me'),
+        api.get('/teacher/dashboard'),
+        api.get('/evaluations')
+      ]);
+      setProfile(meRes.data);
+      setStats(statsRes.data);
+      setEvaluations(evRes.data || []);
+    } catch (err) {
+      console.error('Error loading dashboard:', err);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchData();
+    setRefreshing(false);
+  };
+
+  if (loading && !refreshing) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.loadingText}>Loading dashboard...</Text>
+      </View>
+    );
+  }
+
+  const initials = profile?.name
+    ? profile.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
+    : 'AD';
+  
+  const displayName = profile?.name || 'Teacher';
+  const displayDept = `${profile?.department || 'Department'} · ${profile?.institute?.toUpperCase() || 'Institution'}`;
+
+  const pendingEval = evaluations.find(e => e.status !== 'completed' && e.status !== 'failed');
+  const recentEval = evaluations.find(e => e.status === 'completed');
+  const completedEvals = evaluations.filter(e => e.status === 'completed').slice(0, 3);
+  const avgScoreVal = parseInt(stats.averageScore) || 0;
 
   return (
     <View style={styles.safe}>
@@ -46,11 +97,11 @@ export default function HomeScreen({ nav }) {
             <View style={styles.headerTop}>
               <View style={styles.greetWrap}>
                 <Text style={styles.greetingSmall}>Good Morning 👋</Text>
-                <Text style={styles.greetingName}>Dr. Anjali Deshpande</Text>
-                <Text style={styles.greetingDept}>MCA Department · VESIT</Text>
+                <Text style={styles.greetingName}>{displayName}</Text>
+                <Text style={styles.greetingDept}>{displayDept}</Text>
               </View>
-              <TouchableOpacity style={styles.avatarCircle}>
-                <Text style={styles.avatarText}>AD</Text>
+              <TouchableOpacity style={styles.avatarCircle} onPress={() => nav.push('Profile')}>
+                <Text style={styles.avatarText}>{initials}</Text>
               </TouchableOpacity>
             </View>
 
@@ -60,21 +111,21 @@ export default function HomeScreen({ nav }) {
               onPress={() => nav.push('NewEvaluation')}
               activeOpacity={0.85}
             >
-              <Text style={styles.quickActionText}>⚡ Start New Evaluation</Text>
-              <Text style={styles.quickActionArrow}>›</Text>
+              <Text style={quickStyles.quickActionText}>⚡ Start New Evaluation</Text>
+              <Text style={quickStyles.quickActionArrow}>›</Text>
             </TouchableOpacity>
           </Animated.View>
         </View>
 
         {/* ── Stat Cards (horizontal scroll) ── */}
         <View style={styles.section}>
-          <SectionHeader title="Overview" action="See all" />
+          <SectionHeader title="Overview" action="Refresh" onAction={fetchData} />
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -Spacing.md }}>
             <View style={{ paddingHorizontal: Spacing.md, flexDirection: 'row', paddingBottom: 4, paddingTop: 4 }}>
-              <StatCard icon="📝" label="Pending"   value="30"   accent={Colors.warning} trendUp={false} trend="5 due" />
-              <StatCard icon="✅" label="Completed" value="128"  accent={Colors.success} trendUp trend="12%" />
-              <StatCard icon="⭐" label="Avg Score" value="71%"  accent={Colors.primary} trendUp trend="3%" />
-              <StatCard icon="🎓" label="Students"  value="180"  accent={Colors.secondary} />
+              <StatCard icon="📝" label="Pending"   value={String(stats.pendingEvaluations)}   accent={Colors.warning} trendUp={false} trend="Needs Action" />
+              <StatCard icon="✅" label="Completed" value={String(stats.completedEvaluations)}  accent={Colors.success} trendUp trend="Evaluated" />
+              <StatCard icon="⭐" label="Avg Score" value={stats.averageScore}  accent={Colors.primary} trendUp trend="Class score" />
+              <StatCard icon="🎓" label="Students"  value={String(stats.totalStudents)}  accent={Colors.secondary} trendUp={false} trend="Enrolled" />
             </View>
           </ScrollView>
         </View>
@@ -82,60 +133,76 @@ export default function HomeScreen({ nav }) {
         {/* ── Pending Banner ── */}
         <View style={styles.section}>
           <SectionHeader title="Needs Attention" />
-          <TouchableOpacity style={styles.pendingCard} activeOpacity={0.85} onPress={() => nav.push('NewEvaluation')}>
-            <View style={styles.pendingStrip} />
-            <View style={styles.pendingBody}>
-              <View style={styles.pendingRow}>
-                <Text style={styles.pendingTitle}>Statistics for Data Science</Text>
-                <Badge label="PENDING" variant="warning" />
+          {pendingEval ? (
+            <TouchableOpacity style={styles.pendingCard} activeOpacity={0.85} onPress={() => nav.push('NewEvaluation')}>
+              <View style={styles.pendingStrip} />
+              <View style={styles.pendingBody}>
+                <View style={styles.pendingRow}>
+                  <Text style={styles.pendingTitle} numberOfLines={1}>{pendingEval.subject}</Text>
+                  <Badge label="PENDING" variant="warning" />
+                </View>
+                <Text style={styles.pendingMeta}>{pendingEval.semester} · {pendingEval.examTitle} · {pendingEval.totalMarks} marks</Text>
+                <View style={styles.pendingDivider} />
+                <View style={styles.pendingRow}>
+                  <Text style={styles.pendingCount}>📄 Status: {pendingEval.status}</Text>
+                  <TouchableOpacity style={styles.startBtn} onPress={() => nav.push('NewEvaluation')}>
+                    <Text style={styles.startBtnText}>Evaluate →</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-              <Text style={styles.pendingMeta}>NMCA11 · Mid Term Test · 20 marks</Text>
-              <View style={styles.pendingDivider} />
-              <View style={styles.pendingRow}>
-                <Text style={styles.pendingCount}>📄 30 answer sheets pending</Text>
-                <TouchableOpacity style={styles.startBtn} onPress={() => nav.push('NewEvaluation')}>
-                  <Text style={styles.startBtnText}>Evaluate →</Text>
-                </TouchableOpacity>
-              </View>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.emptyCardMini}>
+              <Text style={styles.emptyCardTextMini}>✅ All sheets evaluated. You're caught up!</Text>
             </View>
-          </TouchableOpacity>
+          )}
         </View>
 
         {/* ── Class Performance ── */}
         <View style={styles.section}>
-          <SectionHeader title="Class Performance" action="Analytics →" onAction={() => {}} />
+          <SectionHeader title="Class Performance" action="Analytics →" onAction={() => nav.push('Analytics')} />
           <View style={styles.perfCard}>
             <View style={styles.perfScoreRow}>
               <View>
-                <Text style={styles.perfScoreValue}>62%</Text>
+                <Text style={styles.perfScoreValue}>{stats.averageScore}</Text>
                 <Text style={styles.perfScoreLabel}>Average Score</Text>
               </View>
-              <Badge label="Below Target" variant="warning" dot />
+              <Badge label={avgScoreVal >= 70 ? 'On Target' : 'Below Target'} variant={avgScoreVal >= 70 ? 'success' : 'warning'} dot />
             </View>
-            <ProgressIndicator value={62} label="Overall Progress" style={{ marginTop: Spacing.md }} />
-            <View style={styles.subjectRows}>
-              <SubjectRow title="Statistics (NMCA11)" score={62} />
-              <SubjectRow title="Java Full Stack (NMCA12)" score={76} />
-              <SubjectRow title="ETL Engineering (NMCA13)" score={58} />
-            </View>
+            <ProgressIndicator value={avgScoreVal} label="Overall Progress" style={{ marginTop: Spacing.md }} />
+            {completedEvals.length > 0 ? (
+              <View style={styles.subjectRows}>
+                {completedEvals.map(e => (
+                  <SubjectRow key={e._id} title={`${e.subject} (${e.examTitle})`} score={avgScoreVal} />
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.emptySubText}>No evaluated subjects available yet.</Text>
+            )}
           </View>
         </View>
 
         {/* ── Recently Evaluated ── */}
         <View style={styles.section}>
           <SectionHeader title="Recently Evaluated" />
-          <View style={styles.recentCard}>
-            <View style={styles.recentLeft}>
-              <View style={[styles.recentDot, { backgroundColor: Colors.success }]} />
-              <View>
-                <Text style={styles.recentTitle}>Java for Full Stack (NMCA12)</Text>
-                <Text style={styles.recentMeta}>Completed · Yesterday · 42 sheets</Text>
+          {recentEval ? (
+            <View style={styles.recentCard}>
+              <View style={styles.recentLeft}>
+                <View style={[styles.recentDot, { backgroundColor: Colors.success }]} />
+                <View style={{ flex: 1, marginRight: 8 }}>
+                  <Text style={styles.recentTitle} numberOfLines={1}>{recentEval.subject} ({recentEval.examTitle})</Text>
+                  <Text style={styles.recentMeta}>Completed · {new Date(recentEval.updatedAt).toLocaleDateString()}</Text>
+                </View>
               </View>
+              <TouchableOpacity onPress={() => nav.push('Results', { evaluationId: recentEval._id })}>
+                <Text style={styles.viewLink}>View →</Text>
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity onPress={() => nav.push('Results')}>
-              <Text style={styles.viewLink}>View →</Text>
-            </TouchableOpacity>
-          </View>
+          ) : (
+            <View style={styles.emptyCardMini}>
+              <Text style={styles.emptyCardTextMini}>No recently graded answer sheets found.</Text>
+            </View>
+          )}
         </View>
 
         {/* ── AI Insights ── */}
@@ -146,9 +213,12 @@ export default function HomeScreen({ nav }) {
               <Text style={styles.aiIcon}>🤖</Text>
               <Text style={styles.aiCardTitle}>AI Recommendations</Text>
             </View>
-            <Text style={styles.aiLine}>• Students are weak in hypothesis testing and data visualization.</Text>
-            <Text style={styles.aiLine}>• Consider extra sessions on statistical inference for NMCA11.</Text>
-            <Text style={styles.aiLine}>• 3 students at risk of failing. Early intervention recommended.</Text>
+            {avgScoreVal > 0 ? (
+              <>
+              </>
+            ) : (
+              <Text style={styles.aiLine}>• AI recommendations will appear once student evaluation results are generated.</Text>
+            )}
           </View>
         </View>
 
@@ -161,7 +231,7 @@ function SubjectRow({ title, score }) {
   return (
     <View style={{ marginTop: Spacing.md }}>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-        <Text style={{ fontSize: Typography.xs, color: Colors.textSecondary, fontWeight: Typography.medium }}>
+        <Text style={{ fontSize: Typography.xs, color: Colors.textSecondary, fontWeight: Typography.medium, flex: 1, marginRight: 8 }} numberOfLines={1}>
           {title}
         </Text>
         <Text style={{ fontSize: Typography.xs, fontWeight: Typography.bold, color: Colors.textSecondary }}>
@@ -173,8 +243,16 @@ function SubjectRow({ title, score }) {
   );
 }
 
+const quickStyles = StyleSheet.create({
+  quickActionText: { color: '#fff', fontWeight: Typography.semiBold, fontSize: Typography.sm },
+  quickActionArrow: { color: '#fff', fontSize: 20 }
+});
+
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
+
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
+  loadingText: { marginTop: Spacing.md, fontSize: Typography.sm, color: Colors.textSecondary, fontWeight: Typography.medium },
 
   // Hero
   heroHeader: {
@@ -222,8 +300,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.25)',
   },
-  quickActionText: { color: '#fff', fontWeight: Typography.semiBold, fontSize: Typography.sm },
-  quickActionArrow: { color: '#fff', fontSize: 20 },
 
   // Sections
   section: {
@@ -248,11 +324,21 @@ const styles = StyleSheet.create({
   pendingCount: { fontSize: Typography.xs, color: Colors.textSecondary },
   startBtn: {
     backgroundColor: Colors.primary,
-    borderRadius: Radius.full,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: Radius.sm,
   },
   startBtnText: { color: '#fff', fontSize: Typography.xs, fontWeight: Typography.bold },
+
+  emptyCardMini: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    ...Shadow.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  emptyCardTextMini: { fontSize: Typography.xs, color: Colors.textSecondary, fontWeight: Typography.medium },
 
   // Perf card
   perfCard: {
@@ -261,46 +347,38 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     ...Shadow.sm,
   },
-  perfScoreRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  perfScoreValue: {
-    fontSize: Typography.xxxl,
-    fontWeight: Typography.extraBold,
-    color: Colors.textPrimary,
-    letterSpacing: -1,
-  },
+  perfScoreRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  perfScoreValue: { fontSize: Typography.xxl, fontWeight: Typography.bold, color: Colors.textPrimary },
   perfScoreLabel: { fontSize: Typography.xs, color: Colors.textMuted, marginTop: 2 },
-  subjectRows: { marginTop: Spacing.sm },
+  subjectRows: { marginTop: Spacing.xs },
+  emptySubText: { fontSize: Typography.xs, color: Colors.textMuted, marginTop: Spacing.md },
 
   // Recent card
   recentCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
     ...Shadow.sm,
   },
   recentLeft: { flexDirection: 'row', alignItems: 'center', flex: 1 },
-  recentDot: { width: 10, height: 10, borderRadius: 5, marginRight: Spacing.sm },
+  recentDot: { width: 8, height: 8, borderRadius: 4, marginRight: Spacing.sm },
   recentTitle: { fontSize: Typography.sm, fontWeight: Typography.semiBold, color: Colors.textPrimary },
-  recentMeta:  { fontSize: Typography.xs, color: Colors.textMuted, marginTop: 2 },
-  viewLink:    { fontSize: Typography.sm, color: Colors.primary, fontWeight: Typography.bold },
+  recentMeta:  { fontSize: 10, color: Colors.textMuted, marginTop: 2 },
+  viewLink: { fontSize: Typography.xs, color: Colors.primary, fontWeight: Typography.bold },
 
-  // AI card
+  // AI insights card
   aiCard: {
-    backgroundColor: Colors.primarySurface,
+    backgroundColor: Colors.surfaceAlt,
     borderRadius: Radius.lg,
     padding: Spacing.md,
-    borderLeftWidth: 4,
-    borderLeftColor: Colors.primary,
+    borderWidth: 1.5,
+    borderColor: Colors.border,
   },
-  aiCardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: Spacing.md },
+  aiCardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: Spacing.sm },
   aiIcon: { fontSize: 20, marginRight: Spacing.sm },
-  aiCardTitle: { fontSize: Typography.sm, fontWeight: Typography.bold, color: Colors.primary },
-  aiLine: { fontSize: Typography.sm, color: Colors.textSecondary, lineHeight: 20, marginBottom: 4 },
+  aiCardTitle: { fontSize: Typography.sm, fontWeight: Typography.bold, color: Colors.textSecondary },
+  aiLine: { fontSize: Typography.xs, color: Colors.textSecondary, lineHeight: 18, marginBottom: 4 },
 });

@@ -1,67 +1,103 @@
-import React from 'react';
-import { ScrollView, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+// src/screens/StudentResultsScreen.js – Dynamic Student Results list
+import React, { useState, useEffect } from 'react';
+import { ScrollView, View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getStudentResults } from '../utils/StudentDataStore';
+import api from '../config/api';
 
 export default function StudentResultsScreen({ nav }) {
-  const results = getStudentResults();
+  const [loading, setLoading] = useState(true);
+  const [results, setResults] = useState([]);
+
+  useEffect(() => {
+    fetchResults();
+  }, []);
+
+  const fetchResults = async () => {
+    try {
+      setLoading(true);
+      const res = await api.get('/student/reports');
+      setResults(res.data.reports || []);
+    } catch (err) {
+      console.error('Error fetching student results:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#3b82f6" />
+        <Text style={styles.loadingText}>Loading your results...</Text>
+      </View>
+    );
+  }
+
+  if (results.length === 0) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyIcon}>📊</Text>
+          <Text style={styles.emptyTitle}>No results graded yet</Text>
+          <Text style={styles.emptyDesc}>Your evaluations will show up here once graded by your teacher.</Text>
+          <TouchableOpacity style={styles.refreshBtn} onPress={fetchResults}>
+            <Text style={styles.refreshBtnText}>Tap to Refresh</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         <Text style={styles.title}>My Results</Text>
         <Text style={styles.subtitle}>View all your evaluation results</Text>
 
         <View style={styles.resultsList}>
-          {results.map((result) => (
-            <View key={result.id} style={styles.resultCard}>
-              <View style={styles.resultHeader}>
-                <View style={styles.resultInfo}>
-                  <Text style={styles.resultName}>{result.name}</Text>
-                  <Text style={styles.resultSubject}>{result.subject}</Text>
-                  <Text style={styles.resultDate}>
-                    {new Date(result.date).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
-                  </Text>
-                </View>
-                <View style={styles.badgeContainer}>
-                  {result.status === 'graded' ? (
+          {results.map((result) => {
+            const pct = Math.round((result.obtainedMarks / result.totalMarks) * 100);
+            return (
+              <View key={result.id} style={styles.resultCard}>
+                <View style={styles.resultHeader}>
+                  <View style={styles.resultInfo}>
+                    <Text style={styles.resultName}>{result.name}</Text>
+                    <Text style={styles.resultSubject}>{result.subject}</Text>
+                    <Text style={styles.resultDate}>
+                      {new Date(result.date).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })}
+                    </Text>
+                  </View>
+                  <View style={styles.badgeContainer}>
                     <View style={styles.scoreBadge}>
                       <Text style={styles.scoreBadgeText}>
                         {result.obtainedMarks}/{result.totalMarks}
                       </Text>
                     </View>
-                  ) : (
-                    <View style={styles.pendingBadge}>
-                      <Text style={styles.pendingBadgeText}>Pending</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-
-              {result.status === 'graded' && (
-                <>
-                  <View style={styles.progressBar}>
-                    <View
-                      style={[
-                        styles.progressFill,
-                        { width: `${(result.obtainedMarks / result.totalMarks) * 100}%` },
-                      ]}
-                    />
                   </View>
-                  <TouchableOpacity
-                    style={styles.viewButton}
-                    onPress={() => nav.push('StudentResultDetail', { resultId: result.id })}
-                  >
-                    <Text style={styles.viewButtonText}>View Details</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-          ))}
+                </View>
+
+                <View style={styles.progressBar}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { width: `${pct}%` },
+                    ]}
+                  />
+                </View>
+                <TouchableOpacity
+                  style={styles.viewButton}
+                  onPress={() => nav.push('StudentResultDetail', { resultId: result.id })}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.viewButtonText}>View Details</Text>
+                </TouchableOpacity>
+              </View>
+            );
+          })}
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -73,6 +109,17 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f9fafb',
   },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#f9fafb' },
+  loadingText: { marginTop: 12, fontSize: 14, color: '#6b7280', fontWeight: '500' },
+  
+  // Empty state
+  emptyContainer: { flex: 1, padding: 40, alignItems: 'center', justifyContent: 'center', marginTop: 80 },
+  emptyIcon: { fontSize: 48, marginBottom: 16 },
+  emptyTitle: { fontSize: 18, fontWeight: '700', color: '#111827', marginBottom: 8 },
+  emptyDesc: { fontSize: 14, color: '#6b7280', textAlign: 'center', lineHeight: 20, marginBottom: 24 },
+  refreshBtn: { paddingVertical: 10, paddingHorizontal: 20, borderRadius: 8, backgroundColor: '#3b82f6' },
+  refreshBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+
   scrollContent: {
     padding: 20,
   },
@@ -132,17 +179,6 @@ const styles = StyleSheet.create({
   scoreBadgeText: {
     color: '#1e40af',
     fontWeight: '700',
-    fontSize: 14,
-  },
-  pendingBadge: {
-    backgroundColor: '#fef3c7',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  pendingBadgeText: {
-    color: '#92400e',
-    fontWeight: '600',
     fontSize: 14,
   },
   progressBar: {

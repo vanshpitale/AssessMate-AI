@@ -1,31 +1,104 @@
-// src/screens/ResultsScreen.js – Production upgrade
-import React, { useRef, useEffect } from 'react';
+// src/screens/ResultsScreen.js – Dynamic Results Dashboard
+import React, { useRef, useEffect, useState } from 'react';
 import {
-  ScrollView, Text, TouchableOpacity, View, StyleSheet, Animated,
+  ScrollView, Text, TouchableOpacity, View, StyleSheet, Animated, ActivityIndicator, Alert
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../theme';
 import Badge from '../components/ui/Badge';
 import ProgressIndicator from '../components/ui/ProgressIndicator';
 import BackButton from '../components/ui/BackButton';
-
-
-const DISTRIBUTION = [
-  { range: '18–20', grade: 'A+', count: 6,  percent: 20, color: Colors.success },
-  { range: '15–17', grade: 'A',  count: 10, percent: 33, color: '#34D399' },
-  { range: '11–14', grade: 'B',  count: 9,  percent: 30, color: Colors.primary },
-  { range: '7–10',  grade: 'C',  count: 4,  percent: 13, color: Colors.warning },
-  { range: '0–6',   grade: 'F',  count: 1,  percent: 3,  color: Colors.danger },
-];
+import api from '../config/api';
 
 export default function ResultsScreen({ nav }) {
   const scoreAnim = useRef(new Animated.Value(0)).current;
+  const evaluationId = nav.params.evaluationId;
+
+  const [loading, setLoading] = useState(true);
+  const [evaluation, setEvaluation] = useState(null);
+  const [results, setResults] = useState([]);
 
   useEffect(() => {
-    Animated.timing(scoreAnim, {
-      toValue: 1, duration: 700, useNativeDriver: true,
-    }).start();
-  }, []);
+    fetchResults();
+  }, [evaluationId]);
+
+  const fetchResults = async () => {
+    if (!evaluationId) {
+      setLoading(false);
+      return;
+    }
+    try {
+      setLoading(true);
+      const response = await api.get(`/evaluations/${evaluationId}/results`);
+      setEvaluation(response.data.evaluation);
+      setResults(response.data.results || []);
+      
+      Animated.timing(scoreAnim, {
+        toValue: 1, duration: 700, useNativeDriver: true,
+      }).start();
+    } catch (error) {
+      console.error('Fetch results error:', error);
+      Alert.alert('Error', 'Could not load evaluation results.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.loadingText}>Loading results...</Text>
+      </View>
+    );
+  }
+
+  const totalMarks = evaluation ? evaluation.totalMarks : 100;
+  const averageScore = results.length > 0
+    ? (results.reduce((sum, r) => sum + (r.finalScore || r.aiScore || 0), 0) / results.length).toFixed(1)
+    : '0.0';
+
+  const highestScore = results.length > 0 
+    ? Math.max(...results.map(r => r.finalScore || r.aiScore || 0)) 
+    : 0;
+
+  const lowestScore = results.length > 0 
+    ? Math.min(...results.map(r => r.finalScore || r.aiScore || 0)) 
+    : 0;
+
+  const passCount = results.filter(r => (r.finalScore || r.aiScore || 0) >= totalMarks * 0.4).length;
+  const passRate = results.length > 0 ? Math.round((passCount / results.length) * 100) : 0;
+
+  const averageMarksPercent = totalMarks > 0 ? Math.round((parseFloat(averageScore) / totalMarks) * 100) : 0;
+
+  // Grade distribution mapping
+  const grades = [
+    { range: `${Math.round(totalMarks*0.9)}–${totalMarks}`, grade: 'A+', count: 0, percent: 0, color: Colors.success },
+    { range: `${Math.round(totalMarks*0.75)}–${Math.round(totalMarks*0.89)}`, grade: 'A', count: 0, percent: 0, color: '#34D399' },
+    { range: `${Math.round(totalMarks*0.55)}–${Math.round(totalMarks*0.74)}`, grade: 'B', count: 0, percent: 0, color: Colors.primary },
+    { range: `${Math.round(totalMarks*0.4)}–${Math.round(totalMarks*0.54)}`, grade: 'C', count: 0, percent: 0, color: Colors.warning },
+    { range: `0–${Math.round(totalMarks*0.39)}`, grade: 'F', count: 0, percent: 0, color: Colors.danger },
+  ];
+  results.forEach(r => {
+    const score = r.finalScore || r.aiScore || 0;
+    if (score >= totalMarks * 0.9) grades[0].count++;
+    else if (score >= totalMarks * 0.75) grades[1].count++;
+    else if (score >= totalMarks * 0.55) grades[2].count++;
+    else if (score >= totalMarks * 0.4) grades[3].count++;
+    else grades[4].count++;
+  });
+  grades.forEach(g => {
+    g.percent = results.length > 0 ? Math.round((g.count / results.length) * 100) : 0;
+  });
+
+  const getPerformanceRemark = (avgPct) => {
+    if (avgPct >= 85) return 'Excellent Performance';
+    if (avgPct >= 70) return 'Good Performance ↑';
+    if (avgPct >= 50) return 'Average Performance';
+    return 'Needs Immediate Improvement';
+  };
+
+  const metaText = `${results.length} student${results.length !== 1 ? 's' : ''} · ${evaluation?.examTitle || 'Exam'} · ${evaluation?.subject || 'Course'}`;
 
   return (
     <View style={styles.safe}>
@@ -44,25 +117,25 @@ export default function ResultsScreen({ nav }) {
           <View style={styles.heroBg2} />
           <View style={styles.heroContent}>
             <Text style={styles.heroLabel}>Average Score</Text>
-            <Text style={styles.heroScore}>14.2</Text>
-            <Text style={styles.heroTotal}> / 20</Text>
-            <Badge label="Good Performance ↑" variant="success" style={{ marginTop: Spacing.sm }} />
-            <Text style={styles.heroMeta}>30 students · Mid Term · NMCA12</Text>
+            <Text style={styles.heroScore}>{averageScore}</Text>
+            <Text style={styles.heroTotal}> / {totalMarks}</Text>
+            <Badge label={getPerformanceRemark(averageMarksPercent)} variant={averageMarksPercent >= 70 ? 'success' : 'warning'} style={{ marginTop: Spacing.sm }} />
+            <Text style={styles.heroMeta}>{metaText}</Text>
           </View>
         </Animated.View>
 
         {/* ── Quick Stats ── */}
         <View style={styles.quickStats}>
-          <QuickStat label="Highest" value="19/20" icon="🏆" color={Colors.success} />
-          <QuickStat label="Lowest"  value="4/20"  icon="📉" color={Colors.danger} />
-          <QuickStat label="Pass Rate" value="97%" icon="✅" color={Colors.primary} />
+          <QuickStat label="Highest" value={`${highestScore}/${totalMarks}`} icon="🏆" color={Colors.success} />
+          <QuickStat label="Lowest"  value={`${lowestScore}/${totalMarks}`}  icon="📉" color={Colors.danger} />
+          <QuickStat label="Pass Rate" value={`${passRate}%`} icon="✅" color={Colors.primary} />
         </View>
 
         {/* ── Distribution ── */}
         <View style={styles.section}>
-          <ResultSectionHeader title="Score Distribution" subtitle="(Out of 20 marks)" />
+          <ResultSectionHeader title="Score Distribution" subtitle={`(Out of ${totalMarks} marks)`} />
           <View style={styles.distCard}>
-            {DISTRIBUTION.map(d => (
+            {grades.map(d => (
               <View key={d.range} style={styles.distRow}>
                 <View style={styles.distGradeCol}>
                   <Text style={[styles.distGrade, { color: d.color }]}>{d.grade}</Text>
@@ -86,8 +159,8 @@ export default function ResultsScreen({ nav }) {
         <View style={styles.section}>
           <ResultSectionHeader title="Overall Progress" />
           <View style={styles.progressCard}>
-            <ProgressIndicator value={71} label="Class Pass Rate" style={{ marginBottom: Spacing.md }} />
-            <ProgressIndicator value={62} label="Average Marks" color={Colors.secondary} />
+            <ProgressIndicator value={passRate} label="Class Pass Rate" style={{ marginBottom: Spacing.md }} />
+            <ProgressIndicator value={averageMarksPercent} label="Average Marks" color={Colors.secondary} />
           </View>
         </View>
 
@@ -100,7 +173,10 @@ export default function ResultsScreen({ nav }) {
         <TouchableOpacity style={styles.shareBtn}>
           <Text style={styles.shareBtnText}>📤 Share</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.analysisBtn} onPress={() => nav.push('QuestionAnalysis')}>
+        <TouchableOpacity 
+          style={styles.analysisBtn} 
+          onPress={() => nav.push('QuestionAnalysis', { evaluation, results })}
+        >
           <Text style={styles.analysisBtnText}>📋 Question Analysis →</Text>
         </TouchableOpacity>
       </View>
@@ -147,6 +223,19 @@ const styles = StyleSheet.create({
   headerTitle:{ fontSize: Typography.md, fontWeight: Typography.bold, color: Colors.textPrimary },
 
   scroll: { padding: Spacing.md },
+
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.background,
+  },
+  loadingText: {
+    marginTop: Spacing.md,
+    fontSize: Typography.sm,
+    color: Colors.textSecondary,
+    fontWeight: Typography.medium,
+  },
 
   // Hero
   heroCard: {

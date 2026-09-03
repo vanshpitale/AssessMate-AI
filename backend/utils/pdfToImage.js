@@ -50,6 +50,9 @@ async function convertPdfToImages(pdfPath, outputDir) {
     throw new Error('PDF conversion produced zero pages. The file may be corrupt or empty.');
   }
 
+  // Explicitly sort pngPages by pageNumber to strictly preserve page order
+  pngPages.sort((a, b) => a.pageNumber - b.pageNumber);
+
   if (pngPages.length === MAX_PAGES) {
     console.warn(`[PDF] PDF may have more than ${MAX_PAGES} pages — only the first ${MAX_PAGES} were processed.`);
   }

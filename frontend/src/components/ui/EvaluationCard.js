@@ -64,8 +64,11 @@ export default function EvaluationCard({ question, style }) {
       {/* Average score progress */}
       <View style={styles.scoreRow}>
         <Text style={styles.scoreLabel}>Avg Score</Text>
+        <Text style={[styles.scoreValueText, { color: question.avg >= 75 ? Colors.success : (question.avg >= 50 ? Colors.primary : Colors.warning) }]}>
+          {question.avg}%
+        </Text>
         <View style={styles.scoreBarWrap}>
-          <ProgressIndicator value={question.avg} showPercent height={6} animate={expanded} />
+          <ProgressIndicator value={question.avg} showPercent={false} height={6} animate={expanded} />
         </View>
       </View>
 
@@ -145,8 +148,13 @@ const styles = StyleSheet.create({
     fontSize: Typography.xs,
     color: Colors.textMuted,
     fontWeight: Typography.medium,
-    width: 64,
+    marginRight: Spacing.xs,
+  },
+  scoreValueText: {
+    fontSize: Typography.xs,
+    fontWeight: Typography.bold,
     marginRight: Spacing.sm,
+    minWidth: 32,
   },
   scoreBarWrap: { flex: 1 },
   expandedSection: { paddingTop: Spacing.sm },

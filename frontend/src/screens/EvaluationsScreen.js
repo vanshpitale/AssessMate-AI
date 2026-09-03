@@ -37,14 +37,14 @@ const ALL_QUESTIONS = [
   },
 ];
 
-const FILTERS = ['All', 'MCQ', 'Descriptive', 'AI Flagged'];
+const FILTERS = ['All', 'MCQ', 'Descriptive', 'AI flagged'];
 
 export default function EvaluationsScreen({ nav }) {
   const [activeFilter, setActiveFilter] = useState('All');
 
   const filtered = ALL_QUESTIONS.filter(q => {
     if (activeFilter === 'All')         return true;
-    if (activeFilter === 'AI Flagged')  return q.flag;
+    if (activeFilter === 'AI flagged')  return q.flag;
     return q.type === activeFilter;
   });
 
@@ -67,12 +67,7 @@ export default function EvaluationsScreen({ nav }) {
       </View>
 
       {/* ── Filter chips ── */}
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.filtersScroll}
-        contentContainerStyle={styles.filtersContent}
-      >
+      <View style={styles.filtersContainer}>
         {FILTERS.map(f => (
           <TouchableOpacity
             key={f}
@@ -85,7 +80,7 @@ export default function EvaluationsScreen({ nav }) {
             </Text>
           </TouchableOpacity>
         ))}
-      </ScrollView>
+      </View>
 
       <ScrollView
         contentContainerStyle={styles.scroll}
@@ -166,26 +161,30 @@ const styles = StyleSheet.create({
   summaryValue: { fontSize: Typography.md, fontWeight: Typography.bold },
   summaryLabel: { fontSize: 9, color: Colors.textMuted, fontWeight: Typography.medium, textTransform: 'uppercase' },
 
-  filtersScroll: { maxHeight: 56 },
-  filtersContent: {
+  filtersContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     paddingHorizontal: Spacing.md,
-    alignItems: 'center',
-    gap: Spacing.sm,
     paddingVertical: Spacing.sm,
+    backgroundColor: Colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
   },
   filterChip: {
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
     borderRadius: Radius.full,
     backgroundColor: Colors.surface,
     borderWidth: 1.5,
     borderColor: Colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   filterChipActive:     { backgroundColor: Colors.primary, borderColor: Colors.primary },
-  filterChipText:       { fontSize: Typography.sm, color: Colors.textSecondary, fontWeight: Typography.medium },
+  filterChipText:       { fontSize: 11, color: Colors.textSecondary, fontWeight: Typography.medium },
   filterChipTextActive: { color: '#fff', fontWeight: Typography.bold },
 
-  scroll: { padding: Spacing.md },
+  scroll: { padding: Spacing.md, paddingBottom: 100 },
 
   ctaBtn: {
     backgroundColor: Colors.primary,

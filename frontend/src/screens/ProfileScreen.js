@@ -1,14 +1,13 @@
-// src/screens/ProfileScreen.js – Production upgrade
-import React, { useState, useRef } from 'react';
+// src/screens/ProfileScreen.js – Dynamic Profile screen
+import React, { useState, useRef, useEffect } from 'react';
 import {
   ScrollView, Text, View, TouchableOpacity, StyleSheet,
-  Modal, Animated,
+  Modal, Animated, ActivityIndicator
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../theme';
 import Badge from '../components/ui/Badge';
-import PrimaryButton from '../components/ui/PrimaryButton';
-import { getStudentInfo } from '../utils/StudentDataStore';
+import api from '../config/api';
 import { handleLogout } from '../utils/logoutHandler';
 
 // Animated Toggle Switch
@@ -46,16 +45,67 @@ export default function ProfileScreen({ nav, userType }) {
   const [notifications,   setNotifications]   = useState(true);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
 
-  const isStudent = userType === 'student';
-  const studentInfo = isStudent ? getStudentInfo() : null;
+  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState(null);
+  const [stats, setStats] = useState({
+    evaluatedCount: 0,
+    averageScore: '0%'
+  });
 
-  const initials = isStudent
-    ? studentInfo.name.split(' ').map(n => n[0]).join('').slice(0, 2)
+  useEffect(() => {
+    fetchProfile();
+  }, []);
+
+  const fetchProfile = async () => {
+    try {
+      setLoading(true);
+      const meRes = await api.get('/auth/me');
+      setProfile(meRes.data);
+      if (meRes.data.role === 'teacher') {
+        const statsRes = await api.get('/teacher/dashboard');
+        setStats({
+          evaluatedCount: statsRes.data.completedEvaluations || 0,
+          averageScore: statsRes.data.averageScore || '0%'
+        });
+      } else {
+        const reportsRes = await api.get('/student/reports');
+        const reports = reportsRes.data.reports || [];
+        if (reports.length > 0) {
+          const sum = reports.reduce((acc, r) => acc + (r.obtainedMarks || 0), 0);
+          const max = reports.reduce((acc, r) => acc + (r.totalMarks || 100), 0);
+          setStats({
+            evaluatedCount: reports.length,
+            averageScore: max > 0 ? Math.round((sum / max) * 100) + '%' : '0%'
+          });
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching profile:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.loadingText}>Loading profile...</Text>
+      </View>
+    );
+  }
+
+  const isStudent = profile?.role === 'student';
+
+  const initials = profile?.name
+    ? profile.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
     : 'AD';
 
-  const name  = isStudent ? studentInfo.name  : 'Dr. Anjali Deshpande';
-  const role  = isStudent ? `${studentInfo.course} · ${studentInfo.semester}` : 'MCA Department · VESIT';
-  const email = isStudent ? studentInfo.email : 'anjali.deshpande@ves.ac.in';
+  const name  = profile?.name || (isStudent ? 'Student' : 'Teacher');
+  const role  = isStudent 
+    ? `Enrollment ID: ${profile?.enrollmentId || 'N/A'}` 
+    : `${profile?.department || 'MCA'} · ${profile?.institute?.toUpperCase() || 'VESIT'}`;
+  const email = profile?.email || '';
 
   const onLogoutConfirm = async () => {
     setShowLogoutModal(false);
@@ -92,18 +142,18 @@ export default function ProfileScreen({ nav, userType }) {
 
           {/* ── Usage Stats ── */}
           <View style={styles.statsRow}>
-            <StatPill icon="📝" value={isStudent ? '8' : '128'} label={isStudent ? 'Tests' : 'Evaluated'} />
-            <StatPill icon="⭐" value={isStudent ? '76%' : '71%'} label="Avg Score" />
-            <StatPill icon="📅" value={isStudent ? 'Sem II' : '18'} label={isStudent ? 'Semester' : 'This Month'} />
+            <StatPill icon="📝" value={String(stats.evaluatedCount)} label={isStudent ? 'Tests Graded' : 'Evaluations'} />
+            <StatPill icon="⭐" value={stats.averageScore} label="Avg Score" />
+            <StatPill icon="📅" value={isStudent ? (profile?.section || 'A') : 'MCA'} label={isStudent ? 'Section' : 'Dept'} />
           </View>
 
-          {/* ── Student Roll Info ── */}
+          {/* ── Student Academic Info ── */}
           {isStudent && (
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Academic Details</Text>
-              <InfoRow label="Roll Number" value={studentInfo.rollNumber} />
-              <InfoRow label="Division"    value={studentInfo.division || 'A'} />
-              <InfoRow label="Year"        value={studentInfo.year    || 'MCA-I'} />
+              <InfoRow label="Enrollment ID" value={profile?.enrollmentId || 'N/A'} />
+              <InfoRow label="Section"       value={profile?.section || 'A'} />
+              <InfoRow label="Institute"     value={profile?.institute?.toUpperCase() || 'VESIT'} />
             </View>
           )}
 
@@ -127,7 +177,7 @@ export default function ProfileScreen({ nav, userType }) {
             </View>
           )}
 
-          {/* ── Notifications ── */}
+          {/* ── Preferences ── */}
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Preferences</Text>
             <SettingRow
@@ -140,7 +190,7 @@ export default function ProfileScreen({ nav, userType }) {
 
           {/* ── Teacher-only actions ── */}
           {!isStudent && (
-            <TouchableOpacity style={styles.actionBtn}>
+            <TouchableOpacity style={styles.actionBtn} onPress={() => nav.push('NewEvaluation')}>
               <Text style={styles.actionBtnIcon}>🗝️</Text>
               <View style={{ flex: 1 }}>
                 <Text style={styles.actionBtnLabel}>Manage Answer Keys & Rubrics</Text>
@@ -159,7 +209,7 @@ export default function ProfileScreen({ nav, userType }) {
             <Text style={styles.logoutText}>Log Out</Text>
           </TouchableOpacity>
 
-          <Text style={styles.version}>AssessMate AI v1.0 · © 2025 VESIT</Text>
+          <Text style={styles.version}>AssessMate AI v1.0 · © 2026 VESIT</Text>
         </View>
       </ScrollView>
 
@@ -227,6 +277,9 @@ function InfoRow({ label, value }) {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
 
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
+  loadingText: { marginTop: Spacing.md, fontSize: Typography.sm, color: Colors.textSecondary, fontWeight: Typography.medium },
+
   // Hero header
   heroHeader: {
     backgroundColor: Colors.primary,
@@ -249,147 +302,75 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.2)',
     borderWidth: 3, borderColor: 'rgba(255,255,255,0.4)',
     alignItems: 'center', justifyContent: 'center',
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
-  avatarText:  { color: '#fff', fontSize: Typography.xl, fontWeight: Typography.extraBold },
-  heroName:    { color: '#fff', fontSize: Typography.xl, fontWeight: Typography.bold, marginBottom: 2 },
-  heroRole:    { color: 'rgba(255,255,255,0.7)', fontSize: Typography.sm },
-  heroEmail:   { color: 'rgba(255,255,255,0.6)', fontSize: Typography.xs, marginTop: 2, marginBottom: Spacing.md },
-  heroBadgeRow:{ flexDirection: 'row', alignItems: 'center' },
+  avatarText: { color: '#fff', fontSize: Typography.xl, fontWeight: Typography.bold },
+  heroName: { color: '#fff', fontSize: Typography.md, fontWeight: Typography.bold, marginBottom: 2 },
+  heroRole: { color: 'rgba(255,255,255,0.7)', fontSize: Typography.xs, marginBottom: 4 },
+  heroEmail: { color: 'rgba(255,255,255,0.6)', fontSize: Typography.xs, marginBottom: Spacing.sm },
+  heroBadgeRow: { flexDirection: 'row', alignItems: 'center' },
 
   bodyPad: { padding: Spacing.md },
 
-  // Stats row
-  statsRow: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-    marginBottom: Spacing.md,
-    marginTop: -Spacing.xl,
-  },
+  // Usage stats
+  statsRow: { flexDirection: 'row', gap: Spacing.sm, marginBottom: Spacing.md },
   statPill: {
-    flex: 1,
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
-    alignItems: 'center',
-    ...Shadow.md,
+    flex: 1, backgroundColor: Colors.surface, borderRadius: Radius.lg,
+    padding: Spacing.sm, alignItems: 'center', ...Shadow.sm,
   },
-  statPillIcon:  { fontSize: 18, marginBottom: 4 },
-  statPillValue: { fontSize: Typography.md, fontWeight: Typography.extraBold, color: Colors.textPrimary },
-  statPillLabel: { fontSize: 9, color: Colors.textMuted, textTransform: 'uppercase', fontWeight: Typography.medium, marginTop: 2 },
+  statPillIcon: { fontSize: 16, marginBottom: 4 },
+  statPillValue: { fontSize: Typography.sm, fontWeight: Typography.bold, color: Colors.textPrimary },
+  statPillLabel: { fontSize: 9, color: Colors.textMuted, textTransform: 'uppercase', marginTop: 2 },
 
   // Card
-  card: {
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
-    marginBottom: Spacing.md,
-    ...Shadow.sm,
-  },
-  cardTitle: {
-    fontSize: Typography.sm,
-    fontWeight: Typography.bold,
-    color: Colors.textSecondary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: Spacing.md,
-  },
+  card: { backgroundColor: Colors.surface, borderRadius: Radius.lg, padding: Spacing.md, ...Shadow.sm, marginBottom: Spacing.md },
+  cardTitle: { fontSize: Typography.sm, fontWeight: Typography.bold, color: Colors.textPrimary, marginBottom: Spacing.md },
   divider: { height: 1, backgroundColor: Colors.borderLight, marginVertical: Spacing.sm },
 
-  // Setting row
-  settingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: Spacing.xs },
-  settingLabel: { fontSize: Typography.sm, fontWeight: Typography.semiBold, color: Colors.textPrimary },
-  settingDesc:  { fontSize: Typography.xs, color: Colors.textMuted, marginTop: 2 },
+  // Toggle Switch
+  track: { width: 48, height: 28, borderRadius: 14, padding: 2 },
+  thumb: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#fff', ...Shadow.sm },
 
-  // Toggle
-  track: {
-    width: 48, height: 28, borderRadius: 14,
-    justifyContent: 'center',
-  },
-  thumb: {
-    width: 24, height: 24, borderRadius: 12,
-    backgroundColor: '#fff',
-    ...Shadow.sm,
-  },
+  // Settings
+  settingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  settingLabel: { fontSize: Typography.sm, color: Colors.textPrimary, fontWeight: Typography.semiBold },
+  settingDesc: { fontSize: Typography.xs, color: Colors.textMuted, marginTop: 2 },
 
   // Info row
-  infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: Spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.borderLight,
-  },
-  infoLabel: { fontSize: Typography.sm, color: Colors.textMuted },
-  infoValue: { fontSize: Typography.sm, fontWeight: Typography.semiBold, color: Colors.textPrimary },
+  infoRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: Spacing.xs },
+  infoLabel: { fontSize: Typography.xs, color: Colors.textSecondary },
+  infoValue: { fontSize: Typography.xs, color: Colors.textPrimary, fontWeight: Typography.semiBold },
 
   // Action button
   actionBtn: {
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: Spacing.md,
-    ...Shadow.sm,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.surface,
+    borderRadius: Radius.lg, padding: Spacing.md, ...Shadow.sm, marginBottom: Spacing.md,
   },
-  actionBtnIcon:   { fontSize: 22, marginRight: Spacing.md },
-  actionBtnLabel:  { fontSize: Typography.sm, fontWeight: Typography.semiBold, color: Colors.textPrimary },
-  actionBtnDesc:   { fontSize: Typography.xs, color: Colors.textMuted, marginTop: 2 },
-  actionChevron:   { fontSize: 22, color: Colors.textMuted },
+  actionBtnIcon: { fontSize: 20, marginRight: Spacing.md },
+  actionBtnLabel: { fontSize: Typography.sm, fontWeight: Typography.bold, color: Colors.textPrimary },
+  actionBtnDesc: { fontSize: Typography.xs, color: Colors.textMuted, marginTop: 2 },
+  actionChevron: { fontSize: 20, color: Colors.textMuted, marginLeft: Spacing.md },
 
   // Logout button
   logoutBtn: {
-    backgroundColor: Colors.dangerSurface,
-    borderRadius: Radius.lg,
-    padding: Spacing.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.danger + '40',
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.dangerSurface, borderWidth: 1.5, borderColor: Colors.danger + '30',
+    borderRadius: Radius.lg, padding: Spacing.md, marginBottom: Spacing.xl,
   },
   logoutIcon: { fontSize: 18, marginRight: Spacing.sm },
-  logoutText: { fontSize: Typography.base, fontWeight: Typography.bold, color: Colors.danger },
+  logoutText: { fontSize: Typography.sm, fontWeight: Typography.bold, color: Colors.danger },
 
-  version: {
-    textAlign: 'center',
-    fontSize: Typography.xs,
-    color: Colors.textMuted,
-    marginBottom: Spacing.xl,
-  },
+  version: { fontSize: 10, color: Colors.textMuted, textAlign: 'center', marginTop: Spacing.md },
 
-  // Modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: Spacing.lg,
-  },
-  modalCard: {
-    backgroundColor: Colors.surface,
-    borderRadius: Radius.xl,
-    padding: Spacing.xl,
-    alignItems: 'center',
-    width: '100%',
-    ...Shadow.lg,
-  },
-  modalIcon:  { fontSize: 40, marginBottom: Spacing.md },
-  modalTitle: { fontSize: Typography.xl, fontWeight: Typography.bold, color: Colors.textPrimary, marginBottom: Spacing.sm },
-  modalDesc:  { fontSize: Typography.sm, color: Colors.textMuted, textAlign: 'center', lineHeight: 20, marginBottom: Spacing.lg },
-  modalActions: { flexDirection: 'row', gap: Spacing.sm, width: '100%' },
-  modalCancelBtn: {
-    flex: 1, padding: 14, borderRadius: Radius.md,
-    borderWidth: 1.5, borderColor: Colors.border,
-    alignItems: 'center',
-  },
-  modalCancelText: { fontSize: Typography.base, fontWeight: Typography.semiBold, color: Colors.textSecondary },
-  modalLogoutBtn: {
-    flex: 1, padding: 14, borderRadius: Radius.md,
-    backgroundColor: Colors.danger,
-    alignItems: 'center',
-  },
-  modalLogoutText: { fontSize: Typography.base, fontWeight: Typography.bold, color: '#fff' },
+  // Modal logout
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  modalCard: { backgroundColor: Colors.surface, borderRadius: Radius.lg, padding: Spacing.xl, width: '80%', alignItems: 'center', ...Shadow.lg },
+  modalIcon: { fontSize: 32, marginBottom: Spacing.sm },
+  modalTitle: { fontSize: Typography.md, fontWeight: Typography.bold, color: Colors.textPrimary, marginBottom: Spacing.sm },
+  modalDesc: { fontSize: Typography.sm, color: Colors.textMuted, textAlign: 'center', marginBottom: Spacing.lg, lineHeight: 20 },
+  modalActions: { flexDirection: 'row', gap: Spacing.sm },
+  modalCancelBtn: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: Radius.md, borderWidth: 1, borderColor: Colors.border },
+  modalCancelText: { fontSize: Typography.xs, color: Colors.textSecondary, fontWeight: Typography.bold },
+  modalLogoutBtn: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: Radius.md, backgroundColor: Colors.danger },
+  modalLogoutText: { fontSize: Typography.xs, color: '#fff', fontWeight: Typography.bold },
 });

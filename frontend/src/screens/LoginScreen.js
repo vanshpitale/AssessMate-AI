@@ -164,16 +164,16 @@ export default function LoginScreen({ nav }) {
           />
 
           <View style={styles.links}>
-            <TouchableOpacity>
+            <TouchableOpacity activeOpacity={0.8}>
               <Text style={[styles.link, { color: accentColor }]}>Forgot password?</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => nav.push('Signup', { role: isTeacher ? 'teacher' : 'student' })}>
+            <TouchableOpacity onPress={() => nav.push('Signup', { role: isTeacher ? 'teacher' : 'student' })} activeOpacity={0.8}>
               <Text style={[styles.link, { color: accentColor }]}>Create account</Text>
             </TouchableOpacity>
           </View>
 
           {/* Back to role selection */}
-          <TouchableOpacity style={styles.backRow} onPress={() => nav.replace('RoleSelection')}>
+          <TouchableOpacity style={styles.backRow} onPress={() => nav.replace('RoleSelection')} activeOpacity={0.8}>
             <Text style={styles.backText}>← Choose a different role</Text>
           </TouchableOpacity>
         </Animated.View>

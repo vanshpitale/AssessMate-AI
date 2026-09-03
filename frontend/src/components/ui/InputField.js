@@ -81,6 +81,7 @@ const InputField = React.forwardRef(({
           <TouchableOpacity
             onPress={() => setShowPassword(v => !v)}
             style={styles.rightIcon}
+            activeOpacity={0.6}
           >
             <Text style={styles.eyeIcon}>{showPassword ? '🙈' : '👁️'}</Text>
           </TouchableOpacity>

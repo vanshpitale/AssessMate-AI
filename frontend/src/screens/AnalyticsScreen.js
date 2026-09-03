@@ -1,45 +1,77 @@
-// src/screens/AnalyticsScreen.js – Production upgrade with bar charts & filter chips
-import React, { useState } from 'react';
+// src/screens/AnalyticsScreen.js – Dynamic Performance Analytics
+import React, { useState, useEffect } from 'react';
 import {
-  ScrollView, Text, View, TouchableOpacity, StyleSheet,
+  ScrollView, Text, View, TouchableOpacity, StyleSheet, ActivityIndicator
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors, Typography, Spacing, Radius, Shadow } from '../theme';
 import ProgressIndicator from '../components/ui/ProgressIndicator';
 import Badge from '../components/ui/Badge';
 import SectionHeader from '../components/ui/SectionHeader';
+import api from '../config/api';
 
 const SUBJECTS = ['All', 'NMCA11', 'NMCA12', 'NMCA13'];
 const PERIODS  = ['This Month', 'Last Month', 'Semester'];
 
-// Bar chart data (scores per week)
-const CHART_DATA = [
-  { label: 'W1', value: 58 },
-  { label: 'W2', value: 63 },
-  { label: 'W3', value: 71 },
-  { label: 'W4', value: 68 },
-  { label: 'W5', value: 76 },
-  { label: 'W6', value: 74 },
-];
-
-const WEAK_AREAS = [
-  { topic: 'Hypothesis Testing',     subject: 'NMCA11', score: 52, color: Colors.danger },
-  { topic: 'ETL Process Design',     subject: 'NMCA13', score: 58, color: Colors.warning },
-  { topic: 'SQL Joins (JDBC)',        subject: 'NMCA12', score: 64, color: Colors.warning },
-  { topic: 'Data Visualization',     subject: 'NMCA11', score: 67, color: Colors.primary },
-];
-
-const TOP_STUDENTS = [
-  { name: 'Priya Sharma',   score: '19.2/20', rank: 1 },
-  { name: 'Rohan Mehta',    score: '18.8/20', rank: 2 },
-  { name: 'Ananya Gupta',   score: '18.5/20', rank: 3 },
-];
-
 export default function AnalyticsScreen() {
   const [activeSubject, setActiveSubject] = useState('All');
   const [activePeriod,  setActivePeriod]  = useState('This Month');
+  
+  const [loading, setLoading] = useState(true);
+  const [analytics, setAnalytics] = useState({
+    averageScore: '0%',
+    chartData: [],
+    weakAreas: [],
+    topStudents: [],
+    subjectBreakdown: [],
+    aiInsights: [],
+  });
 
-  const maxVal = Math.max(...CHART_DATA.map(d => d.value));
+  useEffect(() => {
+    fetchAnalytics();
+  }, []);
+
+  const fetchAnalytics = async () => {
+    try {
+      setLoading(true);
+      const res = await api.get('/teacher/analytics');
+      setAnalytics(res.data);
+    } catch (err) {
+      console.error('Error fetching analytics:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.primary} />
+        <Text style={styles.loadingText}>Loading analytics...</Text>
+      </View>
+    );
+  }
+
+  const chartData = analytics.chartData || [];
+  const maxVal = chartData.length > 0 ? Math.max(...chartData.map(d => d.value)) : 100;
+
+  if (chartData.length === 0) {
+    return (
+      <View style={styles.safe}>
+        <View style={styles.header}>
+          <Text style={styles.headerTitle}>Analytics</Text>
+          <Badge label="Live Data" variant="success" dot />
+        </View>
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyIcon}>📊</Text>
+          <Text style={styles.emptyTitle}>No Analytics Available</Text>
+          <Text style={styles.emptyDesc}>Analytics will appear here after student evaluations are completed.</Text>
+          <TouchableOpacity style={styles.refreshBtn} onPress={fetchAnalytics}>
+            <Text style={styles.refreshBtnText}>Tap to Refresh</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.safe}>
@@ -78,31 +110,31 @@ export default function AnalyticsScreen() {
 
         {/* ── Performance Trend (Bar Chart) ── */}
         <View style={styles.section}>
-          <SectionHeader title="Performance Trend" action={activePeriod} />
+          <SectionHeader title="Performance Trend" action="Evaluation-wise" />
           <View style={styles.chartCard}>
             <View style={styles.chartHeader}>
               <View>
-                <Text style={styles.chartAvg}>76.5%</Text>
+                <Text style={styles.chartAvg}>{analytics.averageScore}</Text>
                 <Text style={styles.chartAvgLabel}>Current Average</Text>
               </View>
-              <Badge label="↑ 8.7% vs last month" variant="success" />
+              <Badge label="Dynamic updates" variant="success" />
             </View>
             <View style={styles.barChart}>
-              {CHART_DATA.map((d, i) => (
+              {chartData.map((d, i) => (
                 <View key={i} style={styles.barWrap}>
                   <Text style={styles.barValue}>{d.value}%</Text>
                   <View style={styles.barTrack}>
                     <View
-                      style={[
-                        styles.barFill,
-                        {
-                          height: `${(d.value / maxVal) * 100}%`,
-                          backgroundColor: i === CHART_DATA.length - 1 ? Colors.primary : Colors.primaryLight,
-                        },
-                      ]}
+                       style={[
+                         styles.barFill,
+                         {
+                           height: `${maxVal > 0 ? (d.value / maxVal) * 100 : 0}%`,
+                           backgroundColor: i === chartData.length - 1 ? Colors.primary : Colors.primaryLight,
+                         },
+                       ]}
                     />
                   </View>
-                  <Text style={styles.barLabel}>{d.label}</Text>
+                  <Text style={styles.barLabel} numberOfLines={1}>{d.label}</Text>
                 </View>
               ))}
             </View>
@@ -111,49 +143,72 @@ export default function AnalyticsScreen() {
 
         {/* ── Weak Areas ── */}
         <View style={styles.section}>
-          <SectionHeader title="Weak Areas" action="See all →" />
-          <View style={styles.card}>
-            {WEAK_AREAS.map((w, i) => (
-              <View key={i} style={[styles.weakRow, i < WEAK_AREAS.length - 1 && styles.weakRowBorder]}>
-                <View style={styles.weakLeft}>
-                  <Text style={styles.weakTopic}>{w.topic}</Text>
-                  <Badge label={w.subject} variant="neutral" style={{ marginTop: 4 }} />
-                </View>
-                <View style={styles.weakRight}>
-                  <Text style={[styles.weakScore, { color: w.color }]}>{w.score}%</Text>
-                  <View style={{ width: 80 }}>
-                    <ProgressIndicator value={w.score} showPercent={false} color={w.color} height={6} />
+          <SectionHeader title="Weak Areas" />
+          {analytics.weakAreas.length > 0 ? (
+            <View style={styles.card}>
+              {analytics.weakAreas.map((w, i) => (
+                <View key={i} style={[styles.weakRow, i < analytics.weakAreas.length - 1 && styles.weakRowBorder]}>
+                  <View style={styles.weakLeft}>
+                    <Text style={styles.weakTopic}>{w.topic}</Text>
+                    <Badge label={w.subject} variant="neutral" style={{ marginTop: 4 }} />
+                  </View>
+                  <View style={styles.weakRight}>
+                    <Text style={[styles.weakScore, { color: w.color }]}>{w.score}%</Text>
+                    <View style={{ width: 80 }}>
+                      <ProgressIndicator value={w.score} showPercent={false} color={w.color} height={6} />
+                    </View>
                   </View>
                 </View>
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.card}>
+              <Text style={styles.noWeakText}>🎉 No weak areas identified. Average score is above 65% for all questions.</Text>
+            </View>
+          )}
         </View>
 
         {/* ── Subject Breakdown ── */}
         <View style={styles.section}>
           <SectionHeader title="Subject Breakdown" />
-          <View style={styles.card}>
-            <ProgressIndicator label="NMCA11 – Statistics"     value={62} style={{ marginBottom: Spacing.md }} />
-            <ProgressIndicator label="NMCA12 – Java Full Stack" value={76} color={Colors.success} style={{ marginBottom: Spacing.md }} />
-            <ProgressIndicator label="NMCA13 – ETL Engineering" value={58} />
-          </View>
+          {analytics.subjectBreakdown.length > 0 ? (
+            <View style={styles.card}>
+              {analytics.subjectBreakdown.map((sb, idx) => (
+                <ProgressIndicator
+                  key={idx}
+                  label={sb.subject}
+                  value={sb.score}
+                  style={{ marginBottom: idx < analytics.subjectBreakdown.length - 1 ? Spacing.md : 0 }}
+                />
+              ))}
+            </View>
+          ) : (
+            <View style={styles.card}>
+              <Text style={styles.noWeakText}>No subjects data found.</Text>
+            </View>
+          )}
         </View>
 
         {/* ── Top Students ── */}
         <View style={styles.section}>
           <SectionHeader title="Top Performers" />
-          <View style={styles.card}>
-            {TOP_STUDENTS.map((s, i) => (
-              <View key={i} style={[styles.studentRow, i < TOP_STUDENTS.length - 1 && styles.weakRowBorder]}>
-                <View style={[styles.rankBadge, { backgroundColor: Colors.primary + (i === 0 ? 'FF' : '80') }]}>
-                  <Text style={styles.rankText}>{s.rank}</Text>
+          {analytics.topStudents.length > 0 ? (
+            <View style={styles.card}>
+              {analytics.topStudents.map((s, i) => (
+                <View key={i} style={[styles.studentRow, i < analytics.topStudents.length - 1 && styles.weakRowBorder]}>
+                  <View style={[styles.rankBadge, { backgroundColor: Colors.primary + (i === 0 ? 'FF' : '80') }]}>
+                    <Text style={styles.rankText}>{s.rank}</Text>
+                  </View>
+                  <Text style={styles.studentName} numberOfLines={1}>{s.name}</Text>
+                  <Text style={[styles.studentScore, { color: Colors.success }]}>{s.score}</Text>
                 </View>
-                <Text style={styles.studentName}>{s.name}</Text>
-                <Text style={[styles.studentScore, { color: Colors.success }]}>{s.score}</Text>
-              </View>
-            ))}
-          </View>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.card}>
+              <Text style={styles.noWeakText}>No student performance data found.</Text>
+            </View>
+          )}
         </View>
 
         {/* ── AI Insights ── */}
@@ -161,9 +216,9 @@ export default function AnalyticsScreen() {
           <SectionHeader title="AI Insights" />
           <View style={styles.insightCard}>
             <Text style={styles.insightHeader}>🤖 Gemini AI Recommendations</Text>
-            <Text style={styles.insightItem}>• Focus extra sessions on Hypothesis Testing for NMCA11 (avg 52%).</Text>
-            <Text style={styles.insightItem}>• NMCA12 shows improving trend — consider advanced problems next quiz.</Text>
-            <Text style={styles.insightItem}>• 3 students consistently scoring below 40%. Consider early intervention.</Text>
+            {analytics.aiInsights.map((insight, idx) => (
+              <Text key={idx} style={styles.insightItem}>{insight}</Text>
+            ))}
           </View>
         </View>
 
@@ -174,6 +229,9 @@ export default function AnalyticsScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
+
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: Colors.background },
+  loadingText: { marginTop: Spacing.md, fontSize: Typography.sm, color: Colors.textSecondary, fontWeight: Typography.medium },
 
   header: {
     backgroundColor: Colors.surface,
@@ -188,6 +246,14 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: Typography.lg, fontWeight: Typography.bold, color: Colors.textPrimary },
 
   scroll: { padding: Spacing.md },
+
+  // Empty state
+  emptyContainer: { flex: 1, padding: Spacing.xxl, alignItems: 'center', justifyContent: 'center', marginTop: 40 },
+  emptyIcon: { fontSize: 48, marginBottom: Spacing.md },
+  emptyTitle: { fontSize: Typography.md, fontWeight: Typography.bold, color: Colors.textPrimary, marginBottom: 8 },
+  emptyDesc: { fontSize: Typography.sm, color: Colors.textMuted, textAlign: 'center', lineHeight: 20, marginBottom: Spacing.lg },
+  refreshBtn: { paddingVertical: Spacing.sm, paddingHorizontal: Spacing.lg, borderRadius: Radius.md, backgroundColor: Colors.primary },
+  refreshBtnText: { color: '#fff', fontWeight: Typography.bold, fontSize: Typography.xs },
 
   // Filter chips
   chipRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, paddingBottom: 2 },
@@ -239,53 +305,42 @@ const styles = StyleSheet.create({
     height: 140,
     justifyContent: 'space-between',
   },
-  barWrap: { alignItems: 'center', flex: 1 },
+  barWrap: { alignItems: 'center', flex: 1, marginHorizontal: 2 },
   barValue: { fontSize: 8, color: Colors.textMuted, marginBottom: 4 },
   barTrack: {
-    flex: 1, width: 24,
+    flex: 1, width: '100%',
     backgroundColor: Colors.surfaceAlt,
     borderRadius: Radius.xs,
     justifyContent: 'flex-end',
+    minWidth: 16,
   },
   barFill: {
     width: '100%',
     borderRadius: Radius.xs,
-    minHeight: 4,
   },
-  barLabel: {
-    fontSize: 10, color: Colors.textMuted,
-    marginTop: 6, fontWeight: Typography.medium,
-  },
+  barLabel: { fontSize: 8, color: Colors.textMuted, marginTop: 6, textAlign: 'center' },
 
   // Weak areas
-  weakRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: Spacing.sm,
-  },
+  weakRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: Spacing.sm },
   weakRowBorder: { borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
-  weakLeft:  { flex: 1 },
-  weakRight: { alignItems: 'flex-end', marginLeft: Spacing.sm },
-  weakTopic: { fontSize: Typography.sm, fontWeight: Typography.semiBold, color: Colors.textPrimary },
-  weakScore: { fontSize: Typography.md, fontWeight: Typography.extraBold, marginBottom: 4 },
+  weakLeft: { flex: 1 },
+  weakTopic: { fontSize: Typography.sm, fontWeight: Typography.bold, color: Colors.textPrimary },
+  weakRight: { alignItems: 'flex-end', gap: 4 },
+  weakScore: { fontSize: Typography.sm, fontWeight: Typography.bold },
+  noWeakText: { fontSize: Typography.xs, color: Colors.textMuted, textAlign: 'center', paddingVertical: 8 },
 
-  // Top students
-  studentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: Spacing.sm,
-  },
+  // Students list
+  studentRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: Spacing.sm },
   rankBadge: {
-    width: 28, height: 28, borderRadius: 14,
+    width: 24, height: 24, borderRadius: 12,
     alignItems: 'center', justifyContent: 'center',
-    marginRight: Spacing.sm,
+    marginRight: Spacing.md,
   },
-  rankText:    { color: '#fff', fontSize: Typography.xs, fontWeight: Typography.bold },
-  studentName: { flex: 1, fontSize: Typography.sm, fontWeight: Typography.medium, color: Colors.textPrimary },
-  studentScore:{ fontSize: Typography.sm, fontWeight: Typography.bold },
+  rankText: { color: '#fff', fontSize: Typography.xs, fontWeight: Typography.bold },
+  studentName: { flex: 1, fontSize: Typography.sm, color: Colors.textPrimary, fontWeight: Typography.medium },
+  studentScore: { fontSize: Typography.sm, fontWeight: Typography.bold },
 
-  // Insights
+  // AI Insights
   insightCard: {
     backgroundColor: Colors.primarySurface,
     borderRadius: Radius.lg,
@@ -294,5 +349,5 @@ const styles = StyleSheet.create({
     borderLeftColor: Colors.primary,
   },
   insightHeader: { fontSize: Typography.sm, fontWeight: Typography.bold, color: Colors.primary, marginBottom: Spacing.sm },
-  insightItem:   { fontSize: Typography.sm, color: Colors.textSecondary, lineHeight: 20, marginBottom: 4 },
+  insightItem: { fontSize: Typography.xs, color: Colors.textSecondary, lineHeight: 18, marginBottom: 4 },
 });

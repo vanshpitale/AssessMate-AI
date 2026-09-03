@@ -2,8 +2,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   ScrollView, Text, View, TouchableOpacity, Image,
-  StyleSheet, Animated, Alert, Modal, ActivityIndicator
+  StyleSheet, Animated, Alert, Modal, ActivityIndicator, TextInput
 } from 'react-native';
+
+const DEFAULT_QUESTIONS = {
+  nmca11: [
+    { id: 'Q1', questionText: 'Explain the central limit theorem and its significance.', modelAnswer: 'The central limit theorem states that the distribution of sample means approximates a normal distribution as the sample size becomes larger, regardless of the population distribution.', max: 10 },
+    { id: 'Q2', questionText: 'What is the difference between Type I and Type II errors?', modelAnswer: 'Type I error is rejecting a true null hypothesis (false positive). Type II error is failing to reject a false null hypothesis (false negative).', max: 10 }
+  ],
+  nmca12: [
+    { id: 'Q1', questionText: 'Explain the difference between INNER JOIN and OUTER JOIN with SQL examples.', modelAnswer: 'INNER JOIN returns records that have matching values in both tables. OUTER JOIN returns all records from one table and matching records from the other table.', max: 10 },
+    { id: 'Q2', questionText: 'Write the Java code for establishing a JDBC connection.', modelAnswer: 'Class.forName("com.mysql.cj.jdbc.Driver"); Connection conn = DriverManager.getConnection(url, user, password);', max: 10 }
+  ],
+  nmca13: [
+    { id: 'Q1', questionText: 'What are the three main phases of ETL? Explain each briefly.', modelAnswer: 'Extract: Retrieve data from sources. Transform: Clean and format data. Load: Write data to target repository.', max: 10 },
+    { id: 'Q2', questionText: 'Explain the star schema and snowflake schema in data warehousing.', modelAnswer: 'Star schema: Fact table surrounded by flat dimension tables. Snowflake schema: Fact table surrounded by normalized dimension tables (split into sub-dimensions).', max: 10 }
+  ]
+};
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { shareAsync } from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -35,6 +50,16 @@ export default function NewEvaluationScreen({ nav }) {
   const [course,        setCourse]        = useState('nmca11');
   const [semester,      setSemester]      = useState('sem1');
   const [assessmentTitle, setAssessmentTitle] = useState('midterm');
+  const [questions, setQuestions] = useState(DEFAULT_QUESTIONS.nmca11);
+  const [showKeyModal, setShowKeyModal] = useState(false);
+  const [isEvaluating, setIsEvaluating] = useState(false);
+
+  // Sync questions with selected course
+  useEffect(() => {
+    if (DEFAULT_QUESTIONS[course]) {
+      setQuestions(DEFAULT_QUESTIONS[course]);
+    }
+  }, [course]);
 
   const slideAnim = useRef(new Animated.Value(0)).current;
 
@@ -87,7 +112,8 @@ export default function NewEvaluationScreen({ nav }) {
         examTitle: assessmentOptions.find(a => a.value === assessmentTitle)?.label || assessmentTitle,
         examType: assessmentType,
         section: 'A', // default section
-        totalMarks: 100 // default marks
+        totalMarks: questions.reduce((sum, q) => sum + (Number(q.max) || 0), 0),
+        questions: questions
       });
       
       setEvaluationId(response.data.evaluationId);
@@ -97,6 +123,27 @@ export default function NewEvaluationScreen({ nav }) {
       console.error(error);
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleRunAIEvaluation = async () => {
+    if (!evaluationId) {
+      Alert.alert('Error', 'No evaluation has been created yet.');
+      return;
+    }
+    setIsEvaluating(true);
+    try {
+      console.log('Running evaluation for evaluationId:', evaluationId);
+      const response = await api.post(`/evaluations/${evaluationId}/run-gemini`, {}, { timeout: 90000 });
+      console.log('AI Evaluation finished successfully:', response.data);
+      Alert.alert('Evaluation Successful', 'All answer sheets evaluated by Gemini AI.');
+      nav.push('Results', { evaluationId });
+    } catch (error) {
+      const errMsg = error.response?.data?.message || error.message || 'Server error';
+      Alert.alert('Evaluation Failed', `Error: ${errMsg}`);
+      console.error('Run AI Error:', error);
+    } finally {
+      setIsEvaluating(false);
     }
   };
 
@@ -232,7 +279,7 @@ export default function NewEvaluationScreen({ nav }) {
       <View style={styles.stepRow}>
         {STEPS.map((s, i) => (
           <React.Fragment key={s}>
-            <TouchableOpacity onPress={() => i < step + 1 && goToStep(i)} style={styles.stepItem}>
+            <TouchableOpacity onPress={() => i < step + 1 && goToStep(i)} style={styles.stepItem} activeOpacity={0.7}>
               <View style={[
                 styles.stepCircle,
                 i < step  && styles.stepDone,
@@ -334,6 +381,7 @@ export default function NewEvaluationScreen({ nav }) {
                   <TouchableOpacity
                     style={styles.removeBtn}
                     onPress={() => { setCapturedImage(null); clearCapturedImage(); }}
+                    activeOpacity={0.7}
                   >
                     <Text style={styles.removeBtnText}>🗑 Remove</Text>
                   </TouchableOpacity>
@@ -356,23 +404,34 @@ export default function NewEvaluationScreen({ nav }) {
                   <TouchableOpacity
                     style={styles.removeBtn}
                     onPress={() => { setCapturedPdf(null); clearCapturedPdf(); }}
+                    activeOpacity={0.7}
                   >
                     <Text style={styles.removeBtnText}>🗑 Remove</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.viewPdfBtn} onPress={viewPdf}>
+                  <TouchableOpacity style={styles.viewPdfBtn} onPress={viewPdf} activeOpacity={0.8}>
                     <Text style={styles.viewPdfBtnText}>👁 View PDF</Text>
                   </TouchableOpacity>
                 </View>
               </View>
             )}
 
-            <SectionTitle icon="🔑" title="Answer Key / Rubric"  style={{ marginTop: Spacing.md }} />
-            <TouchableOpacity style={styles.attachKeyBtn}>
-              <Text style={styles.attachKeyText}>＋ Attach Answer Key or Rubric</Text>
+            <SectionTitle icon="🔑" title="Answer Key / Rubric" style={{ marginTop: Spacing.md }} />
+            {questions.map((q, idx) => (
+              <View key={q.id || idx} style={styles.keyCard}>
+                <View style={styles.keyCardHeader}>
+                  <Text style={styles.keyCardId}>{q.id}</Text>
+                  <Text style={styles.keyCardMax}>🎯 {q.max} marks</Text>
+                </View>
+                <Text style={styles.keyCardText} numberOfLines={2}>{q.questionText || 'No question text provided'}</Text>
+                <Text style={styles.keyCardAnswer} numberOfLines={2}>💡 Ans: {q.modelAnswer}</Text>
+              </View>
+            ))}
+            <TouchableOpacity style={[styles.attachKeyBtn, { marginTop: Spacing.sm }]} onPress={() => setShowKeyModal(true)} activeOpacity={0.8}>
+              <Text style={styles.attachKeyText}>📝 Edit Answer Key / Rubric</Text>
             </TouchableOpacity>
 
             <View style={styles.navRow}>
-              <TouchableOpacity style={styles.prevBtn} onPress={() => goToStep(0)}>
+              <TouchableOpacity style={styles.prevBtn} onPress={() => goToStep(0)} activeOpacity={0.8}>
                 <Text style={styles.prevBtnText}>← Back</Text>
               </TouchableOpacity>
               <PrimaryButton
@@ -402,23 +461,118 @@ export default function NewEvaluationScreen({ nav }) {
               <Text style={styles.aiReadyIcon}>🤖</Text>
               <View style={{ flex: 1 }}>
                 <Text style={styles.aiReadyTitle}>AI Ready</Text>
-                <Text style={styles.aiReadyDesc}>Your sheets will be processed using Gemini Vision AI for accurate evaluation.</Text>
+                <Text style={styles.aiReadyDesc}>Your sheets will be processed using AI for accurate evaluation.</Text>
               </View>
             </View>
 
             <View style={styles.navRow}>
-              <TouchableOpacity style={styles.prevBtn} onPress={() => goToStep(1)}>
+              <TouchableOpacity style={styles.prevBtn} onPress={() => goToStep(1)} activeOpacity={0.8}>
                 <Text style={styles.prevBtnText}>← Back</Text>
               </TouchableOpacity>
               <PrimaryButton
                 title="🚀 Run AI Evaluation"
-                onPress={() => nav.push('Results')}
+                onPress={handleRunAIEvaluation}
                 fullWidth={false}
                 style={{ flex: 1, marginLeft: Spacing.sm }}
               />
             </View>
           </View>
         )}
+
+      {/* ── Modal Answer Key Editor ── */}
+      <Modal visible={showKeyModal} animationType="slide" onRequestClose={() => setShowKeyModal(false)}>
+        <SafeAreaView style={styles.modalSafe}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Answer Key / Rubric</Text>
+            <TouchableOpacity onPress={() => setShowKeyModal(false)}>
+              <Text style={styles.modalCloseText}>Done</Text>
+            </TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled">
+            {questions.map((q, idx) => (
+              <View key={q.id || idx} style={styles.editCard}>
+                <View style={styles.editCardRow}>
+                  <Text style={styles.editCardLabel}>Question ID</Text>
+                  <TextInput
+                    style={styles.idInput}
+                    value={q.id}
+                    onChangeText={(val) => {
+                      const updated = [...questions];
+                      updated[idx].id = val;
+                      setQuestions(updated);
+                    }}
+                    placeholder="e.g. Q1"
+                  />
+                  <Text style={styles.editCardLabel}>Max Marks</Text>
+                  <TextInput
+                    style={styles.marksInput}
+                    value={String(q.max)}
+                    keyboardType="numeric"
+                    onChangeText={(val) => {
+                      const updated = [...questions];
+                      updated[idx].max = Number(val) || 0;
+                      setQuestions(updated);
+                    }}
+                    placeholder="10"
+                  />
+                  <TouchableOpacity
+                    style={styles.deleteQBtn}
+                    onPress={() => {
+                      setQuestions(questions.filter((_, i) => i !== idx));
+                    }}
+                  >
+                    <Text style={styles.deleteQText}>🗑</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.editCardInputLabel}>Question Text</Text>
+                <TextInput
+                  style={styles.editTextInput}
+                  value={q.questionText}
+                  multiline
+                  onChangeText={(val) => {
+                    const updated = [...questions];
+                    updated[idx].questionText = val;
+                    setQuestions(updated);
+                  }}
+                  placeholder="Enter question text"
+                />
+                <Text style={styles.editCardInputLabel}>Model Answer</Text>
+                <TextInput
+                  style={styles.editTextInput}
+                  value={q.modelAnswer}
+                  multiline
+                  onChangeText={(val) => {
+                    const updated = [...questions];
+                    updated[idx].modelAnswer = val;
+                    setQuestions(updated);
+                  }}
+                  placeholder="Enter model answer reference"
+                />
+              </View>
+            ))}
+            <TouchableOpacity
+              style={styles.addQBtn}
+              onPress={() => {
+                const nextId = `Q${questions.length + 1}`;
+                setQuestions([...questions, { id: nextId, questionText: '', modelAnswer: '', max: 10 }]);
+              }}
+            >
+              <Text style={styles.addQBtnText}>＋ Add Question</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* ── Modal Loading Overlay ── */}
+      <Modal visible={isEvaluating} transparent={true} animationType="fade">
+        <View style={styles.loadingOverlay}>
+          <View style={styles.loadingBox}>
+            <ActivityIndicator size="large" color={Colors.primary} />
+            <Text style={styles.loadingText}>Running AI Evaluation...</Text>
+            <Text style={styles.loadingSubtext}>This will take a few moments. Please do not close the app.</Text>
+          </View>
+        </View>
+      </Modal>
 
         <View style={{ height: Spacing.xxxl }} />
       </ScrollView>
@@ -741,4 +895,95 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   prevBtnText: { fontSize: Typography.sm, color: Colors.textSecondary, fontWeight: Typography.semiBold },
+
+  // Loading Overlay
+  loadingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingBox: {
+    backgroundColor: Colors.surface,
+    padding: Spacing.xl,
+    borderRadius: Radius.lg,
+    alignItems: 'center',
+    width: '80%',
+    ...Shadow.md,
+  },
+  loadingText: {
+    fontSize: Typography.md,
+    fontWeight: Typography.bold,
+    color: Colors.textPrimary,
+    marginTop: Spacing.md,
+    textAlign: 'center',
+  },
+  loadingSubtext: {
+    fontSize: Typography.xs,
+    color: Colors.textMuted,
+    marginTop: Spacing.sm,
+    textAlign: 'center',
+    lineHeight: 16,
+  },
+
+  // Modal styles
+  modalSafe: { flex: 1, backgroundColor: Colors.background },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: Spacing.md,
+    backgroundColor: Colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.borderLight,
+  },
+  modalTitle: { fontSize: Typography.md, fontWeight: Typography.bold, color: Colors.textPrimary },
+  modalCloseText: { fontSize: Typography.md, color: Colors.primary, fontWeight: Typography.semiBold },
+  modalScroll: { padding: Spacing.md },
+  
+  // Edit card
+  editCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+    ...Shadow.sm,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  editCardRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs, marginBottom: Spacing.sm },
+  editCardLabel: { fontSize: 11, color: Colors.textMuted, fontWeight: Typography.medium },
+  idInput: { borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.sm, paddingHorizontal: 6, paddingVertical: 4, width: 50, fontSize: Typography.xs, color: Colors.textPrimary },
+  marksInput: { borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.sm, paddingHorizontal: 6, paddingVertical: 4, width: 40, fontSize: Typography.xs, color: Colors.textPrimary },
+  deleteQBtn: { padding: 4, marginLeft: 'auto' },
+  deleteQText: { fontSize: 16 },
+  editCardInputLabel: { fontSize: 11, fontWeight: Typography.bold, color: Colors.textSecondary, marginTop: Spacing.xs, marginBottom: 2 },
+  editTextInput: { borderWidth: 1, borderColor: Colors.border, borderRadius: Radius.sm, padding: 8, fontSize: Typography.xs, color: Colors.textPrimary, minHeight: 48, backgroundColor: Colors.surfaceAlt, textAlignVertical: 'top', marginBottom: Spacing.xs },
+  
+  addQBtn: {
+    backgroundColor: Colors.surface,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: Colors.primary,
+    borderRadius: Radius.lg,
+    padding: Spacing.md,
+    alignItems: 'center',
+    marginBottom: Spacing.xxl,
+  },
+  addQBtnText: { color: Colors.primary, fontWeight: Typography.bold, fontSize: Typography.sm },
+
+  // Key card preview
+  keyCard: {
+    backgroundColor: Colors.surface,
+    borderRadius: Radius.md,
+    padding: Spacing.sm,
+    marginBottom: Spacing.xs,
+    borderWidth: 1,
+    borderColor: Colors.borderLight,
+  },
+  keyCardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  keyCardId: { fontSize: Typography.xs, fontWeight: Typography.bold, color: Colors.primary },
+  keyCardMax: { fontSize: 10, color: Colors.textMuted },
+  keyCardText: { fontSize: Typography.xs, color: Colors.textPrimary, marginBottom: 2 },
+  keyCardAnswer: { fontSize: Typography.xs, color: Colors.textSecondary, fontStyle: 'italic' },
 });
