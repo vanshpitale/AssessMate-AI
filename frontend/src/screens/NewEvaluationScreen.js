@@ -131,12 +131,13 @@ export default function NewEvaluationScreen({ nav }) {
       Alert.alert('Error', 'No evaluation has been created yet.');
       return;
     }
+    if (isEvaluating) return;
     setIsEvaluating(true);
     try {
       console.log('Running evaluation for evaluationId:', evaluationId);
       const response = await api.post(`/evaluations/${evaluationId}/run-gemini`, {}, { timeout: 90000 });
-      console.log('AI Evaluation finished successfully:', response.data);
-      Alert.alert('Evaluation Successful', 'All answer sheets evaluated by Gemini AI.');
+      console.log('Evaluation finished successfully:', response.data);
+      Alert.alert('Evaluation Successful');
       nav.push('Results', { evaluationId });
     } catch (error) {
       const errMsg = error.response?.data?.message || error.message || 'Server error';
@@ -415,7 +416,7 @@ export default function NewEvaluationScreen({ nav }) {
               </View>
             )}
 
-            <SectionTitle icon="🔑" title="Answer Key / Rubric" style={{ marginTop: Spacing.md }} />
+            <SectionTitle icon="🔑" title="Evaluation Key" style={{ marginTop: Spacing.md }} />
             {questions.map((q, idx) => (
               <View key={q.id || idx} style={styles.keyCard}>
                 <View style={styles.keyCardHeader}>
@@ -454,7 +455,7 @@ export default function NewEvaluationScreen({ nav }) {
               <ReviewRow label="Semester"   value={semesterOptions.find(o => o.value === semester)?.label} />
               <ReviewRow label="Assessment" value={assessmentOptions.find(o => o.value === assessmentTitle)?.label} />
               <ReviewRow label="Type"       value={assessmentType} />
-              <ReviewRow label="Sheets"     value={capturedPdf ? 'PDF Attached' : capturedImage ? 'Image Attached' : 'None'} />
+              <ReviewRow label="Sheets"     value={capturedPdf ? 'PDF Attached' : capturedImage ? 'Image Attached' : (pickedPdfs.length > 0 ? `${pickedPdfs.length} PDF(s) Attached` : 'None')} />
             </View>
 
             <View style={styles.aiReadyBanner}>
@@ -466,12 +467,13 @@ export default function NewEvaluationScreen({ nav }) {
             </View>
 
             <View style={styles.navRow}>
-              <TouchableOpacity style={styles.prevBtn} onPress={() => goToStep(1)} activeOpacity={0.8}>
+              <TouchableOpacity style={styles.prevBtn} onPress={() => goToStep(1)} activeOpacity={0.8} disabled={isEvaluating}>
                 <Text style={styles.prevBtnText}>← Back</Text>
               </TouchableOpacity>
               <PrimaryButton
-                title="🚀 Run AI Evaluation"
+                title={isEvaluating ? "Evaluating..." : "🚀 Run AI Evaluation"}
                 onPress={handleRunAIEvaluation}
+                disabled={isEvaluating}
                 fullWidth={false}
                 style={{ flex: 1, marginLeft: Spacing.sm }}
               />

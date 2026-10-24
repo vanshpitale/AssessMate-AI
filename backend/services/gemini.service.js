@@ -2,7 +2,13 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 const fs = require('fs');
 const path = require('path');
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const getGenAI = () => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error('GEMINI_API_KEY is not configured in backend environment variables');
+  }
+  return new GoogleGenerativeAI(apiKey);
+};
 
 // Helper to convert local file to inline data
 const fileToGenerativePart = (filePath, mimeType) => {
@@ -41,39 +47,29 @@ const getMimeType = (filePath) => {
 
 const normalizeAndValidate = (resultObj, expectedQuestions, totalMarks) => {
   if (!resultObj || typeof resultObj !== 'object') {
-    throw new Error('Gemini response is not a valid object');
-  }
-
-  // Normalize overall fields
-  resultObj.overallScore = Number(resultObj.overallScore);
-  resultObj.overallMax = Number(resultObj.overallMax);
-  resultObj.confidence = Number(resultObj.confidence);
-
-  if (isNaN(resultObj.overallScore) || resultObj.overallScore < 0) {
-    throw new Error('overallScore must be a valid non-negative number');
-  }
-
-  if (isNaN(resultObj.overallMax) || resultObj.overallMax !== totalMarks) {
-    throw new Error(`overallMax mismatch: expected ${totalMarks}, got ${resultObj.overallMax}`);
-  }
-
-  if (isNaN(resultObj.confidence) || resultObj.confidence < 0 || resultObj.confidence > 1) {
-    throw new Error('confidence must be a number between 0 and 1');
+    throw new Error('Gemini response is not a valid JSON object');
   }
 
   if (!Array.isArray(resultObj.questions)) {
-    throw new Error('questions must be an array');
+    throw new Error('questions field in Gemini response must be an array');
   }
 
   const expectedMap = new Map();
+  let expectedTotal = 0;
   expectedQuestions.forEach(q => {
     expectedMap.set(q.id, q);
+    expectedTotal += Number(q.max) || 0;
   });
 
   const returnedIds = new Set();
   let calculatedScore = 0;
+  const validatedQuestions = [];
 
   for (const qRes of resultObj.questions) {
+    if (!qRes || typeof qRes !== 'object') {
+      throw new Error('Each question entry must be an object');
+    }
+
     if (!qRes.id) {
       throw new Error('A question is missing its ID');
     }
@@ -88,205 +84,169 @@ const normalizeAndValidate = (resultObj, expectedQuestions, totalMarks) => {
       throw new Error(`Unexpected question ID returned: ${qRes.id}`);
     }
 
-    // Normalize and validate score
-    qRes.score = Number(qRes.score);
-    if (isNaN(qRes.score) || qRes.score < 0 || qRes.score > originalQ.max) {
+    // Strict score validation — no silent clamping
+    const scoreNum = Number(qRes.score);
+    if (isNaN(scoreNum) || scoreNum < 0 || scoreNum > originalQ.max) {
       throw new Error(`Invalid score for question ${qRes.id}: must be between 0 and ${originalQ.max}, got ${qRes.score}`);
     }
 
-    // Normalize and validate max marks
-    qRes.max = Number(qRes.max);
-    if (isNaN(qRes.max) || qRes.max !== originalQ.max) {
+    // Max marks validation
+    const maxNum = Number(qRes.max);
+    if (isNaN(maxNum) || maxNum !== originalQ.max) {
       throw new Error(`Max marks mismatch for question ${qRes.id}: expected ${originalQ.max}, got ${qRes.max}`);
     }
 
-    // Normalize and validate confidence
-    qRes.confidence = Number(qRes.confidence);
-    if (isNaN(qRes.confidence) || qRes.confidence < 0 || qRes.confidence > 1) {
-      throw new Error(`Invalid confidence for question ${qRes.id}: must be between 0 and 1, got ${qRes.confidence}`);
+    // Confidence validation (0.0 to 1.0)
+    let confNum = Number(qRes.confidence);
+    if (isNaN(confNum) || confNum < 0 || confNum > 1) {
+      throw new Error(`Invalid confidence for question ${qRes.id}: must be a number between 0 and 1, got ${qRes.confidence}`);
     }
 
-    // Validate feedback
+    // Feedback validation
     if (typeof qRes.feedback !== 'string' || qRes.feedback.trim() === '') {
       throw new Error(`Invalid feedback for question ${qRes.id}: must be a non-empty string`);
     }
 
-    calculatedScore += qRes.score;
+    calculatedScore += scoreNum;
+    validatedQuestions.push({
+      id: qRes.id,
+      score: scoreNum,
+      max: maxNum,
+      confidence: confNum,
+      feedback: qRes.feedback.trim()
+    });
   }
 
-  // Verify all expected question IDs are returned
+  // Verify all expected question IDs are present
   for (const expectedQ of expectedQuestions) {
     if (!returnedIds.has(expectedQ.id)) {
       throw new Error(`Missing expected question ID: ${expectedQ.id}`);
     }
   }
 
-  // Verify overallScore equals sum of question scores
-  if (Math.abs(resultObj.overallScore - calculatedScore) > 0.01) {
-    throw new Error(`overallScore mismatch: sum of scores is ${calculatedScore}, but overallScore is ${resultObj.overallScore}`);
+  // Preserve question order matching expectedQuestions
+  validatedQuestions.sort((a, b) => {
+    const idxA = expectedQuestions.findIndex(q => q.id === a.id);
+    const idxB = expectedQuestions.findIndex(q => q.id === b.id);
+    return idxA - idxB;
+  });
+
+  // Backend authoritative overall score and max calculation (Step 14)
+  const finalTotalMarks = totalMarks || expectedTotal;
+  const overallScore = Math.round(calculatedScore * 100) / 100;
+
+  // Validate or calculate overall confidence
+  let overallConfidence = Number(resultObj.confidence);
+  if (isNaN(overallConfidence) || overallConfidence < 0 || overallConfidence > 1) {
+    const sumConf = validatedQuestions.reduce((sum, q) => sum + q.confidence, 0);
+    overallConfidence = Math.round((sumConf / (validatedQuestions.length || 1)) * 100) / 100;
   }
 
-  return resultObj;
+  const gradingSummary = typeof resultObj.gradingSummary === 'string' && resultObj.gradingSummary.trim() !== ''
+    ? resultObj.gradingSummary.trim()
+    : 'Evaluation completed.';
+
+  return {
+    overallScore,
+    overallMax: finalTotalMarks,
+    confidence: overallConfidence,
+    gradingSummary,
+    questions: validatedQuestions
+  };
 };
 
-async function evaluateWithGemini({ imageParts, questions, totalMarks }, retryCount = 0) {
+async function evaluateWithGemini({ imageParts, questions, totalMarks }, retryCount = 0, lastError = null) {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-3.5-flash" });
+    const defaultModel = process.env.GEMINI_MODEL || "gemini-3.5-flash-lite";
+    const chosenModel = (retryCount > 0 && lastError && (lastError.message.includes('429') || lastError.message.includes('503') || lastError.message.includes('quota')))
+      ? (defaultModel === "gemini-3.5-flash-lite" ? "gemini-3.5-flash" : "gemini-3.5-flash-lite")
+      : defaultModel;
 
-    let strictModifier = "";
-    if (retryCount > 0) {
-      strictModifier = "\nREMEMBER: OUTPUT ONLY JSON. DO NOT include any text, markdown, or explanation outside of the JSON structure.";
+    const model = getGenAI().getGenerativeModel({ model: chosenModel });
+
+    let correctiveSection = "";
+    if (retryCount > 0 && lastError) {
+      correctiveSection = `
+════════════════════════════════════════
+🚨 RETRY ATTEMPT ${retryCount + 1} OF 3 — FIX PREVIOUS VALIDATION ERROR:
+"${lastError.message}"
+════════════════════════════════════════
+You MUST satisfy all validation criteria:
+1. Return ONLY pure JSON matching the exact schema below.
+2. Include ALL expected question IDs: ${questions.map(q => q.id).join(', ')}.
+3. Do NOT invent extra question IDs.
+4. Question score MUST be between 0 and that question's max mark. NEVER exceed max marks.
+5. Confidence must be between 0.0 and 1.0 reflecting handwriting legibility.
+6. Feedback must be a meaningful, non-empty comment.
+`;
     }
 
 const prompt = `
-You are an experienced, empathetic teacher with 15+ years of grading experience across all academic levels. You are evaluating a student's handwritten answer sheet. Your goal is to grade EXACTLY as a seasoned human teacher would — fair, insightful, and encouraging while being academically rigorous.
+You are a senior, fair, and meticulous human academic examiner evaluating a student's handwritten answer sheet.
+Your core principle: "Give exactly the marks the student deserves — neither less nor more."
 
-Questions and Model Answers (use these as reference, not as a rigid checklist):
+${correctiveSection}
+
+Questions, Maximum Marks, and Model Answers:
 ${JSON.stringify(questions, null, 2)}
 
 ════════════════════════════════════════
-🧑‍🏫 TEACHER MINDSET — READ CAREFULLY
+🧑‍🏫 EXAMINER PRINCIPLES & MARKING RULES
 ════════════════════════════════════════
 
-You are NOT a pattern-matcher. You are a THINKER. Ask yourself:
-  "Does this student understand the concept?"
-  "If I were marking this in a real classroom, what would I give?"
+1. CONCEPTUAL GRADING:
+   - Award full marks when the answer is conceptually complete and accurate.
+   - Accept equivalent wording, different phrasing, or student's own explanation that conveys the correct concept. Do NOT require exact word-for-word match with the model answer.
+   - Award partial marks when the answer is partially correct or covers some key points.
+   - Award zero or minimal marks for completely incorrect, irrelevant, or blank answers.
+   - Do NOT reward an answer merely because it attempted the question if the content is wrong.
+   - Do NOT penalize minor spelling or grammatical errors if the meaning is clear and correct.
+   - Never award more than the maximum marks allocated for any question.
 
-A real teacher:
-  ✓ Reads the student's intent, not just their words
-  ✓ Rewards conceptual clarity even with imperfect phrasing
-  ✓ Gives partial credit for partially correct answers
-  ✓ Recognizes when a student explains something correctly in their own words
-  ✓ Does NOT penalize minor spelling/grammar errors
-  ✓ Does NOT demand word-for-word match with the model answer
-  ✓ Distinguishes between a student who "almost got it" vs. one who is completely off-track
-  ✓ Is consistent — same quality of answer always gets same marks
+2. MULTI-PAGE CONTINUITY:
+   - All input pages belong to the same student's answer sheet in sequential order (Page 1, Page 2, ..., Page N).
+   - An answer may start on one page and continue onto subsequent pages. Look across all pages to evaluate the complete answer before grading a question.
+   - Do NOT treat each page as an independent student.
 
-════════════════════════════════════════
-📐 MARKS ALLOCATION FRAMEWORK
-════════════════════════════════════════
+3. LEGIBILITY & CONFIDENCE (CRITICAL):
+   - Only evaluate what is genuinely visible in the images.
+   - NEVER hallucinate, invent, or assume unreadable or missing content.
+   - "confidence" (0.0 to 1.0) represents visual legibility and clarity of handwriting:
+     * High confidence (0.85 – 1.0): Clearly readable handwriting.
+     * Medium confidence (0.60 – 0.84): Minor handwriting difficulties or faint writing, but decipherable.
+     * Low confidence (0.0 – 0.59): Severely unclear handwriting, blurs, or partially cut-off sections.
+   - Confidence does NOT reflect whether the student's answer is correct or incorrect. A completely wrong answer that is clearly written has high confidence (1.0). A correct answer that is barely legible has low confidence.
 
-Use this scale as internal guidance (do NOT include this in output):
-
-  100% marks  → Answer is complete, accurate, and covers all key points.
-                May use different wording than model answer — that's fine.
-
-  75–99%      → Mostly correct. Minor omissions or slight inaccuracies.
-                Core concept is clearly understood.
-
-  50–74%      → Partially correct. Key ideas present but incomplete.
-                Missing 1–2 important points, or explanation is shallow.
-
-  25–49%      → Some relevant content but significant gaps.
-                Shows awareness of the topic but misses the core concept.
-
-  1–24%       → Very weak. Only a passing mention of the topic.
-                Mostly off-track but shows minimal awareness.
-
-  0%          → Blank, completely irrelevant, or nonsensical answer.
-
-Always award marks in realistic increments (whole or half marks only).
-Never give 0 unless the answer is truly blank or completely wrong.
-Never give full marks unless the answer genuinely deserves them.
+4. CONCISE TEACHER FEEDBACK:
+   - Provide 1–2 sentences of specific, constructive feedback per question.
+   - State what was correct and what was missing or inaccurate.
+   - Do not use chain-of-thought or lengthy internal reasoning.
 
 ════════════════════════════════════════
-🔍 EVALUATION CRITERIA (per question)
+📊 OUTPUT FORMAT — STRICT RAW JSON ONLY
 ════════════════════════════════════════
 
-For each answer, internally assess:
-  1. Conceptual Accuracy    — Does the student understand the core idea?
-  2. Completeness           — Are the key points covered?
-  3. Relevance              — Is the answer on-topic?
-  4. Clarity                — Is the explanation coherent and logical?
-  5. Depth (if applicable)  — For long-answer questions, is there sufficient elaboration?
-
-Weigh these based on the question type:
-  - MCQ / Short answer  → Accuracy and relevance matter most
-  - Long answer / Essay → Conceptual depth and completeness matter most
-  - Definition          → Precision matters, but paraphrasing is acceptable
-
-════════════════════════════════════════
-✍️ HANDWRITING INTERPRETATION RULES
-════════════════════════════════════════
-
-If handwriting is difficult to read:
-  ✓ Use context clues from surrounding words to interpret unclear letters
-  ✓ Consider the most plausible word given the subject matter
-  ✓ Do NOT skip or penalize an answer because of poor handwriting alone
-  ✗ Do NOT invent content that isn't visible
-  ✗ Do NOT assume entire sentences that aren't written
-
-If an answer is partially cut off or unclear, evaluate only what is visible and note it in feedback.
-
-════════════════════════════════════════
-💬 FEEDBACK WRITING GUIDE
-════════════════════════════════════════
-
-Feedback must sound like a real teacher wrote it — warm, specific, and constructive.
-
-  ✓ Mention what the student got RIGHT first
-  ✓ Then point out what was missing or could be improved
-  ✓ Be specific (e.g., "You explained X well but missed Y")
-  ✓ Avoid generic phrases like "Good job" or "Incorrect"
-  ✓ Keep it concise (1–3 sentences per question)
-  ✓ Match the tone to the score — encouraging for partial credit, direct for low scores
-
-Examples of good feedback:
-  → "You correctly identified the main concept but didn't explain the mechanism — that cost you a mark."
-  → "Clear understanding of the topic. Just missed mentioning the second key point."
-  → "The answer is on the right track but too vague — more specific details were needed here."
-  → "Mostly correct! The explanation is a little unclear but the core idea is right."
-
-════════════════════════════════════════
-⚠️ ABSOLUTE RULES (never violate these)
-════════════════════════════════════════
-
-  1. Only evaluate content that is VISIBLE in the image(s)
-  2. NEVER hallucinate or assume answers that aren't written
-  3. NEVER give marks based on what the student "probably meant" without visible evidence
-  4. Be CONSISTENT — identical quality answers must receive identical marks
-  5. Scores must add up correctly (sum of question scores = overallScore)
-  6. Confidence reflects legibility + interpretability, NOT whether the answer is correct
-  7. Multi-page support: The inputs represent pages of a single student's answer sheet. Consider all pages in order (1, 2, ..., N). An answer to a question may start on one page and continue on subsequent pages. Do NOT treat each page as an independent student sheet. Do not award marks for information not actually visible in the page images.
-
-${strictModifier}
-
-════════════════════════════════════════
-📊 OUTPUT FORMAT — STRICT JSON ONLY
-════════════════════════════════════════
-
-Return ONLY valid JSON. No markdown. No explanation. No text outside the JSON object.
+Return ONLY a valid JSON object. Do NOT wrap in markdown \`\`\`json. Do NOT include any intro or outro text.
 
 {
   "overallScore": number,
   "overallMax": number,
   "confidence": number,
-  "gradingSummary": "1–2 sentence overall impression of the student's performance, written like a teacher's remark",
+  "gradingSummary": "1–2 sentence overall remark on the student's performance",
   "questions": [
     {
       "id": "Q1",
       "score": number,
       "max": number,
       "confidence": number,
-      "feedback": "Specific, human-like teacher comment (1–3 sentences)"
+      "feedback": "Concise teacher comment on this answer"
     }
   ]
-}
-
-Field rules:
-  - overallScore      → Sum of all question scores (must match exactly)
-  - overallMax        → Sum of all question max marks
-  - confidence        → 0.0–1.0. How clearly was the sheet readable and interpretable overall?
-  - gradingSummary    → A brief, natural overall remark (e.g., "The student shows a solid grasp of the basics but needs to work on elaborating key concepts.")
-  - score             → Realistic mark based on framework above
-  - feedback          → Never generic. Always specific to this student's actual answer.
-  - question confidence → 0.0–1.0 per question based on legibility of that specific answer
-
-${strictModifier}`;
+}`;
 
     const result = await model.generateContent([
-        prompt,
-        ...imageParts
+      prompt,
+      ...imageParts
     ]);
 
     const text = result.response.text();
@@ -295,15 +255,23 @@ ${strictModifier}`;
 
   } catch (error) {
     if (retryCount < 2) {
-      console.log(`[Gemini retry] Attempt ${retryCount + 1} failed: ${error.message}. Retrying...`);
-      return evaluateWithGemini({ imageParts, questions, totalMarks }, retryCount + 1);
+      let delayMs = (retryCount + 1) * 2500;
+      if (error.message && (error.message.includes('429') || error.message.includes('quota') || error.message.includes('Too Many Requests'))) {
+        delayMs = 12000; // Rate limit window cooldown
+      }
+      console.log(`[Gemini retry] Attempt ${retryCount + 1} failed: ${error.message}. Retrying in ${delayMs}ms...`);
+      await new Promise(res => setTimeout(res, delayMs));
+      return evaluateWithGemini({ imageParts, questions, totalMarks }, retryCount + 1, error);
     }
-    throw error;
+    console.error(`[Gemini failure] All 3 attempts failed: ${error.message}`);
+    throw new Error(`Gemini evaluation failed after 3 attempts: ${error.message}`);
   }
 }
 
 module.exports = {
   evaluateWithGemini,
+  normalizeAndValidate,
   fileToGenerativePart,
-  getMimeType
+  getMimeType,
+  extractJSON
 };

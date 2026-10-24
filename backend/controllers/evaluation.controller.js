@@ -170,46 +170,64 @@ const getEvaluationStatus = async (req, res) => {
 // @desc    Trigger Gemini multimodal AI processing directly (supports PDF + images)
 // @access  Private (Teacher)
 const runGeminiEvaluation = async (req, res) => {
+  const { id } = req.params;
+  const teacherId = req.user.userId;
+
   try {
-    const { id } = req.params;
-    const teacherId = req.user.userId;
+    // 1. Atomic status check & lock: prevent concurrent evaluations for the same evaluation (Step 17)
+    const lockedEval = await Evaluation.findOneAndUpdate(
+      { _id: id, teacherId, status: { $ne: 'processing' } },
+      { status: 'processing' },
+      { returnDocument: 'after' }
+    );
 
-    // 1. Validate user & evaluation
-    const evaluation = await Evaluation.findOne({ _id: id, teacherId });
-    if (!evaluation) {
-      return res.status(404).json({ message: 'Evaluation not found or unauthorized.' });
-    }
-
-    // Retrieve questions from the evaluation stored in database
-    let evalQuestions = evaluation.questions;
-    if (!evalQuestions || !Array.isArray(evalQuestions) || evalQuestions.length === 0) {
-      // Fallback to req.body.questions if not present in database
-      const { questions } = req.body;
-      if (questions && Array.isArray(questions) && questions.length > 0) {
-        evalQuestions = questions;
-      } else {
-        return res.status(400).json({ message: 'No questions defined for this evaluation. Please define them first.' });
+    if (!lockedEval) {
+      const existing = await Evaluation.findById(id);
+      if (!existing) {
+        return res.status(404).json({ message: 'Evaluation not found.' });
       }
+      if (existing.teacherId.toString() !== teacherId.toString()) {
+        return res.status(403).json({ message: 'Unauthorized. You do not own this evaluation.' });
+      }
+      if (existing.status === 'processing') {
+        return res.status(409).json({ message: 'Evaluation is currently being processed. Please wait.' });
+      }
+      return res.status(400).json({ message: `Cannot run evaluation in current status: ${existing.status}` });
     }
 
-    // 2. Fetch uploaded sheets
+    // 2. Authoritative questions from database (Step 8)
+    const evalQuestions = lockedEval.questions;
+    if (!evalQuestions || !Array.isArray(evalQuestions) || evalQuestions.length === 0) {
+      await Evaluation.findByIdAndUpdate(id, { status: 'failed' });
+      return res.status(400).json({ message: 'No questions defined for this evaluation. Please define questions and model answers first.' });
+    }
+
+    // Format questions for Gemini service: include id, questionText, modelAnswer, max
+    const formattedQuestionsForGemini = evalQuestions.map(q => ({
+      id: q.id,
+      questionText: q.questionText || '',
+      modelAnswer: q.modelAnswer,
+      max: Number(q.max) || 0
+    }));
+
+    const totalMarks = evalQuestions.reduce((sum, q) => sum + (Number(q.max) || 0), 0);
+
+    // 3. Fetch uploaded answer sheets (Step 5)
     const sheets = await AnswerSheet.find({ evaluationId: id });
     if (!sheets || sheets.length === 0) {
-      return res.status(400).json({ message: 'No answer sheets found for this evaluation.' });
+      await Evaluation.findByIdAndUpdate(id, { status: 'failed' });
+      return res.status(400).json({ message: 'No answer sheets found for this evaluation. Please upload answer sheets first.' });
     }
-
-    // Update status to processing
-    evaluation.status = 'processing';
-    await evaluation.save();
 
     const evaluationResults = [];
 
+    // 4. Process each student sheet individually (Step 19: multi-student isolation)
     for (let i = 0; i < sheets.length; i++) {
       const sheet = sheets[i];
       let tempImagePaths = [];
 
       try {
-        // 3. Resolve absolute file path from stored fileUrl
+        // Resolve absolute file path from stored fileUrl
         let filePathStr = sheet.fileUrl;
         if (filePathStr.startsWith('http')) {
           const parts = filePathStr.split('/uploads/');
@@ -221,20 +239,19 @@ const runGeminiEvaluation = async (req, res) => {
         const absoluteFilePath = path.join(__dirname, '..', 'uploads', filePathStr);
 
         if (!fs.existsSync(absoluteFilePath)) {
-          throw new Error(`Uploaded file not found: ${filePathStr}`);
+          throw new Error(`Uploaded file not found on disk: ${filePathStr}`);
         }
 
-        // 4. Detect file type and build imageParts for Gemini
         let imageParts = [];
         const ext = path.extname(absoluteFilePath).toLowerCase();
         const tempDir = path.join(__dirname, '..', 'temp_images');
 
         if (ext === '.pdf') {
-          console.log(`[Gemini] PDF detected. Converting to images for sheet ${sheet._id}…`);
+          console.log(`[Gemini] PDF detected. Converting to images for sheet ${sheet._id}...`);
           tempImagePaths = await convertPdfToImages(absoluteFilePath, tempDir);
 
-          if (tempImagePaths.length === 0) {
-            throw new Error('PDF conversion produced no images.');
+          if (!tempImagePaths || tempImagePaths.length === 0) {
+            throw new Error('PDF conversion produced no page images.');
           }
 
           imageParts = tempImagePaths.map((imgPath) => ({
@@ -248,136 +265,60 @@ const runGeminiEvaluation = async (req, res) => {
           imageParts = [fileToGenerativePart(absoluteFilePath, mimeType)];
         }
 
-        // Format questions for Gemini service: { id, max, modelAnswer }
-        const formattedQuestionsForGemini = evalQuestions.map(q => ({
-          id: q.id,
-          max: q.max,
-          modelAnswer: q.modelAnswer
-        }));
-
-        const totalMarks = evalQuestions.reduce((sum, q) => sum + (q.max || 0), 0);
-
-        // 5. Call Gemini
-        console.log(`[Gemini] Calling Gemini evaluation for sheet ${sheet._id}...`);
-        const resultObj = await evaluateWithGemini({ imageParts, questions: formattedQuestionsForGemini, totalMarks });
-
-        // Backend Validation
-        if (!resultObj || typeof resultObj !== 'object') {
-          throw new Error('Gemini response is not a valid object');
-        }
-
-        const evalQuestionsMap = new Map();
-        let calculatedMax = 0;
-        evalQuestions.forEach(q => {
-          evalQuestionsMap.set(q.id, q);
-          calculatedMax += q.max;
+        // 5. Call Gemini service with bounded retry and strict validation (Step 13, 14, 15)
+        console.log(`[Gemini] Calling Gemini evaluation for sheet ${sheet._id} (${imageParts.length} page/image parts)...`);
+        const validatedResult = await evaluateWithGemini({
+          imageParts,
+          questions: formattedQuestionsForGemini,
+          totalMarks
         });
 
-        let calculatedScore = 0;
-        const validatedQuestions = [];
-        const geminiQuestions = Array.isArray(resultObj.questions) ? resultObj.questions : [];
+        // Delete previous result for this sheet if re-running
+        await EvaluationResult.deleteOne({ sheetId: sheet._id, evaluationId: lockedEval._id });
 
-        geminiQuestions.forEach((qResult) => {
-          if (!qResult.id) return;
-          
-          // Match by original question ID from the database evaluation questions
-          const originalQuestion = evalQuestionsMap.get(qResult.id);
-          if (!originalQuestion) return; // skip unrecognized question IDs
-
-          let score = Number(qResult.score);
-          if (isNaN(score) || score < 0) score = 0;
-          if (score > originalQuestion.max) {
-            score = originalQuestion.max; // cap score at max allowed
-          }
-
-          const max = originalQuestion.max;
-          let confidence = Number(qResult.confidence);
-          if (isNaN(confidence) || confidence < 0) confidence = 0.5;
-          if (confidence > 1) confidence = 1.0;
-
-          const feedback = typeof qResult.feedback === 'string' ? qResult.feedback.trim() : 'No feedback provided.';
-
-          calculatedScore += score;
-          validatedQuestions.push({
-            id: qResult.id,
-            score,
-            max,
-            confidence,
-            feedback
-          });
-        });
-
-        // Fill in missing questions that Gemini didn't return
-        evalQuestions.forEach(q => {
-          const found = validatedQuestions.some(vq => vq.id === q.id);
-          if (!found) {
-            validatedQuestions.push({
-              id: q.id,
-              score: 0,
-              max: q.max,
-              confidence: 1.0,
-              feedback: 'Question was not answered or not detected in the sheet.'
-            });
-          }
-        });
-
-        const overallMax = calculatedMax;
-        const overallScore = calculatedScore;
-        const confidence = typeof resultObj.confidence === 'number' ? resultObj.confidence : 0.8;
-        const gradingSummary = typeof resultObj.gradingSummary === 'string' ? resultObj.gradingSummary.trim() : 'Evaluation completed.';
-
-        // Delete duplicate result for this sheet if it already exists
-        await EvaluationResult.deleteOne({ sheetId: sheet._id, evaluationId: evaluation._id });
-
-        // 6. Store result in DB
+        // 6. Persist validated result in database (Step 18)
         const evalResult = new EvaluationResult({
           sheetId: sheet._id,
-          evaluationId: evaluation._id,
-          overallScore,
-          overallMax,
-          confidence,
-          aiScore: overallScore,
-          finalScore: overallScore, // default to AI score
-          questions: validatedQuestions,
-          feedback: gradingSummary,
+          evaluationId: lockedEval._id,
+          overallScore: validatedResult.overallScore,
+          overallMax: validatedResult.overallMax,
+          confidence: validatedResult.confidence,
+          aiScore: validatedResult.overallScore,
+          finalScore: validatedResult.overallScore,
+          questions: validatedResult.questions,
+          feedback: validatedResult.gradingSummary,
           status: 'pending',
         });
         await evalResult.save();
 
         evaluationResults.push(evalResult);
 
-        // 7. Cleanup temp images (PDF path only)
-        if (tempImagePaths.length > 0) {
+      } finally {
+        // Guaranteed cleanup of temporary converted page PNGs; original PDF remains untouched (Step 18, 25)
+        if (tempImagePaths && tempImagePaths.length > 0) {
           cleanupTempImages(tempImagePaths);
         }
-      } catch (sheetError) {
-        console.error(`[Gemini] Error evaluating sheet ${sheet._id}:`, sheetError.message);
-        if (tempImagePaths.length > 0) {
-          cleanupTempImages(tempImagePaths);
-        }
-        throw sheetError; // throw up to abort transaction/run and notify teacher
       }
     }
 
-    // Update status to completed
-    evaluation.status = 'completed';
-    await evaluation.save();
+    // 7. Update evaluation status to completed (Step 16)
+    lockedEval.status = 'completed';
+    await lockedEval.save();
 
-    // 8. Respond
+    // 8. Return response
     return res.status(200).json({
       status: 'completed',
-      evaluationId: evaluation._id,
+      evaluationId: lockedEval._id,
       results: evaluationResults,
     });
 
   } catch (error) {
     console.error('[Gemini] Error running Gemini evaluation:', error);
-    // Mark status back to uploading so teacher can retry
+    // Mark status to failed so evaluation is not stuck in processing (Step 16)
     try {
-      const { id } = req.params;
-      await Evaluation.findByIdAndUpdate(id, { status: 'uploading' });
+      await Evaluation.findByIdAndUpdate(id, { status: 'failed' });
     } catch (dbErr) {
-      console.error('Failed resetting status:', dbErr.message);
+      console.error('Failed setting evaluation status to failed:', dbErr.message);
     }
     res.status(500).json({ message: 'Server error processing Gemini evaluation: ' + error.message });
   }
